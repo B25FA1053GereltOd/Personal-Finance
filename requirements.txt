@@ -1,0 +1,2 @@
+# Tkinter, sqlite3, and unittest are supplied by Python.
+openpyxl>=3.1,<4.0

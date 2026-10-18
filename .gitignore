@@ -1,0 +1,31 @@
+# Local environment and Python caches
+.venv/
+__pycache__/
+*.py[cod]
+
+# Local finance data and backups (at any directory level)
+data/
+backups/
+private_statements/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.bak
+
+# Private bank statements and exports, even outside private_statements/
+*.[xX][lL][sS][xX]
+*.[xX][lL][sS]
+*.[xX][lL][sS][mM]
+*.[cC][sS][vV]
+*.[tT][sS][vV]
+*.[pP][dD][fF]
+*.[oO][fF][xX]
+*.[qQ][fF][xX]
+*.[qQ][iI][fF]
+*[sS][tT][aA][tT][eE][mM][eE][nN][tT]*.[tT][xX][tT]
+
+# The one generated, wholly synthetic parser fixture may be tracked.
+!tests/fixtures/khan_synthetic.xlsx
