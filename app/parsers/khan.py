@@ -143,6 +143,13 @@ class KhanParser:
             return ParseResult(issues=(ParseIssue("unsupported_file", "Only .xlsx workbooks are supported."),))
         try:
             payload = path.read_bytes()
+        except OSError:
+            return ParseResult(issues=(ParseIssue("unreadable_workbook", "Workbook could not be read as the supported XLSX format."),))
+        return self.parse_bytes(payload)
+
+    def parse_bytes(self, payload: bytes) -> ParseResult:
+        """Parse a caller's byte snapshot without making a disk copy."""
+        try:
             with ExitStack() as stack, warnings.catch_warnings():
                 warnings.simplefilter("ignore", UserWarning)
                 original = load_workbook(BytesIO(payload), data_only=False, keep_links=False)

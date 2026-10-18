@@ -1,7 +1,7 @@
 """Validated inputs and exact MNT amounts for the persistence layer."""
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
@@ -141,3 +141,31 @@ class ImportRow:
             require_integer(self.balance_minor, "Balance")
         if self.dedup_key is not None:
             require_text(self.dedup_key, "Deduplication key")
+
+
+@dataclass(frozen=True, kw_only=True)
+class ImportDecision:
+    """One incoming row's disposition, persisted with its import, never logged."""
+
+    row_index: int
+    source: ImportRow = field(repr=False)
+    action: str
+    reason: str
+    matching_transaction_ids: tuple[int, ...] = ()
+
+    def __post_init__(self) -> None:
+        require_integer(self.row_index, "Incoming row index", 0)
+        if not isinstance(self.source, ImportRow):
+            raise ValueError("Decision source must be an ImportRow.")
+        if self.action not in ("keep", "skip"):
+            raise ValueError("Decision must be keep or skip.")
+        if self.reason not in ("new", "verified_reference", "manual"):
+            raise ValueError("Unknown import decision reason.")
+        if not isinstance(self.matching_transaction_ids, tuple):
+            raise ValueError("Matching transaction IDs must be a tuple.")
+        for identifier in self.matching_transaction_ids:
+            require_integer(identifier, "Matching transaction ID", 1)
+        if len(set(self.matching_transaction_ids)) != len(self.matching_transaction_ids):
+            raise ValueError("Matching transaction IDs must not repeat.")
+        if self.action == "skip" and not self.matching_transaction_ids:
+            raise ValueError("A skipped row must identify an existing candidate.")

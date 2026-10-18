@@ -4,7 +4,8 @@ A local, single-user Windows desktop app using Python and Tkinter/ttk.
 Step 1 supplies the application window and development setup. Step 2 supplies
 the database/model layer, exact money conversion, and repository operations.
 Step 3 supplies the verified Khan Bank MNT parser and synthetic workbook tests.
-Import orchestration, deduplication, and UI integration belong to later steps.
+Step 4 supplies preview/confirmation, conservative duplicate handling, and atomic
+imports with saved decisions. UI integration belongs to a later step.
 Runtime is offline and requires no server, paid service, API key, or AI call.
 
 ## Setup in VS Code on Windows
@@ -58,7 +59,7 @@ New-Item -ItemType Directory -Path $env:TEMP -Force | Out-Null
 ```
 
 These temporary-directory variables keep test files inside the project for the
-current terminal session. No additional packages are needed for Step 3.
+current terminal session. No additional packages are needed for Steps 3–4.
 
 Workspace configuration uses the current `debugpy` launch type. Microsoft
 **Python** (`ms-python.python`), **Python Debugger** (`ms-python.debugpy`), and
@@ -101,7 +102,11 @@ are listed in `AGENT_CONTEXT.md` and will be added only when their step starts.
 `app/parsers/` provides database-independent statement parsing. See the
 [verified format facts](docs/khan_format.md) and [parser API](docs/parsers.md).
 The parser preserves source order and text, reports malformed rows explicitly,
-and checks balances and totals. It does not import into the database yet.
+and checks balances and totals. `app/import_service.py` coordinates read-only
+preview/cancel and explicit confirmation before atomic storage. See the
+[import service API](docs/import_service.md) for counts, decisions, and limitations.
+Khan cross-file matches require explicit review because no unique bank reference
+is verified. The existing window remains unchanged.
 `tests/fixtures/khan_synthetic.xlsx` is the sole XLSX Git-ignore exception and
 contains only invented test data.
 
@@ -112,6 +117,6 @@ tracked by Git. Never commit real financial data, log statements, modify
 original bank exports, or use them in tests.
 
 Read `AGENT_CONTEXT.md` and `STATUS.md` before any later implementation step;
-agents are not assumed to load these files automatically. Steps 1–3 are
+agents are not assumed to load these files automatically. Steps 1–4 are
 implemented; later steps require a new instruction. Ask before installing any
 additional packages.

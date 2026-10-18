@@ -4,22 +4,24 @@ The UI deliberately does not open this repository until its integration step.
 See docs/database.md for the small public API and row field conventions.
 """
 
+import hashlib
 import json
 import sqlite3
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
 from app.config import get_data_dir
 from app.models import (
-    DEFAULT_CATEGORIES, KINDS, ImportInfo, ImportRow, require_integer,
+    DEFAULT_CATEGORIES, KINDS, ImportDecision, ImportInfo, ImportRow, require_integer,
     require_text, validate_currency, validate_iso,
 )
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 _EDITABLE = frozenset({
     "description", "occurred_at", "amount_minor", "currency", "reference",
     "balance_minor", "kind", "category_id", "merchant_key", "note", "manual_lock",
@@ -129,6 +131,27 @@ _SCHEMA = (
         SELECT RAISE(ABORT, 'Edit history is append-only'); END""",
 )
 
+_IMPORT_SCHEMA = (
+    """CREATE TABLE import_decisions (
+        import_id INTEGER NOT NULL REFERENCES imports(id),
+        row_index INTEGER NOT NULL CHECK(row_index >= 0),
+        action TEXT NOT NULL CHECK(action IN ('keep', 'skip')),
+        reason TEXT NOT NULL CHECK(reason IN ('new', 'verified_reference', 'manual')),
+        source_json TEXT NOT NULL CHECK(json_valid(source_json)),
+        matching_ids_json TEXT NOT NULL CHECK(json_valid(matching_ids_json)),
+        PRIMARY KEY(import_id, row_index)
+    ) STRICT""",
+    """CREATE TRIGGER immutable_import_decisions BEFORE UPDATE ON import_decisions
+        BEGIN SELECT RAISE(ABORT, 'Import decisions are immutable'); END""",
+    """CREATE TRIGGER retain_import_decisions BEFORE DELETE ON import_decisions
+        BEGIN SELECT RAISE(ABORT, 'Import decisions are append-only'); END""",
+    "CREATE INDEX imports_file ON imports(account_id, sha256)",
+)
+
+
+class ImportStateChanged(ValueError):
+    """An import preview must be refreshed before confirmation."""
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -173,10 +196,15 @@ class Repository:
             raise
 
     def initialize(self) -> None:
-        """Create and seed version 1 once, or validate the existing version."""
+        """Initialize once or atomically migrate version 1's decision storage."""
         with self._write():
             version = self._connection.execute("PRAGMA user_version").fetchone()[0]
             if version == SCHEMA_VERSION:
+                return
+            if version == 1:
+                for statement in _IMPORT_SCHEMA:
+                    self._connection.execute(statement)
+                self._connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
                 return
             if version != 0:
                 raise ValueError(f"Unsupported database schema version {version}; expected {SCHEMA_VERSION}.")
@@ -209,7 +237,9 @@ class Repository:
             self._connection.executemany(
                 "INSERT INTO categories(name, direction) VALUES (?, ?)", DEFAULT_CATEGORIES
             )
-            self._connection.execute("PRAGMA user_version = 1")
+            for statement in _IMPORT_SCHEMA:
+                self._connection.execute(statement)
+            self._connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def _rows(self, sql: str, parameters: tuple = ()) -> list[dict]:
         return [dict(row) for row in self._connection.execute(sql, parameters)]
@@ -231,15 +261,63 @@ class Repository:
     def list_categories(self) -> list[dict]:
         return self._rows("SELECT * FROM categories ORDER BY id")
 
-    def write_import(self, info: ImportInfo, rows: Iterable[ImportRow], *, skipped_count: int = 0, rejected_count: int = 0) -> int:
-        """Atomically store one import and its rows; no duplicate detection yet."""
+    def get_import_state(self, account_id: int) -> dict:
+        """Read one consistent account/source snapshot, with an opaque revision.
+
+        Effective values are excluded: manual edits neither change duplicate
+        identity nor stale a preview. This method never starts a write.
+        """
+        if self._connection.in_transaction:
+            return self._import_state(account_id)
+        self._connection.execute("BEGIN")
+        try:
+            state = self._import_state(account_id)
+            self._connection.execute("COMMIT")
+            return state
+        except BaseException:
+            if self._connection.in_transaction:
+                self._connection.execute("ROLLBACK")
+            raise
+
+    def _import_state(self, account_id: int) -> dict:
+        account = self._one("accounts", account_id)
+        imports = self._rows("SELECT * FROM imports WHERE account_id = ? ORDER BY id", (account_id,))
+        columns = ", ".join("t." + name for name in _SOURCE_COLUMNS)
+        transactions = self._rows(
+            f"SELECT {columns}, i.parser_version FROM transactions t "
+            "JOIN imports i ON i.id = t.import_id WHERE i.account_id = ? ORDER BY t.id",
+            (account_id,),
+        )
+        state = {"account": account, "imports": imports, "transactions": transactions}
+        state["revision"] = hashlib.sha256(
+            json.dumps(state, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        ).hexdigest()
+        return state
+
+    def write_import(self, info: ImportInfo, rows: Iterable[ImportRow], *, skipped_count: int = 0,
+                     rejected_count: int = 0, expected_revision: str | None = None,
+                     decisions: Iterable[ImportDecision] = ()) -> int:
+        """Store all rows, metadata and decisions atomically; optionally guard a preview."""
         if not isinstance(info, ImportInfo):
             raise ValueError("Import metadata must be an ImportInfo instance.")
         require_integer(skipped_count, "Skipped count", 0)
         require_integer(rejected_count, "Rejected count", 0)
         with self._write():
+            if expected_revision is not None and self._import_state(info.account_id)["revision"] != expected_revision:
+                raise ImportStateChanged("Account imports changed; create a new preview before confirming.")
             source_rows = tuple(rows)
+            decisions = tuple(decisions)
             total = require_integer(len(source_rows) + skipped_count + rejected_count, "Total count", 0)
+            if decisions:
+                if any(not isinstance(d, ImportDecision) for d in decisions):
+                    raise ValueError("Import decisions must be ImportDecision instances.")
+                if (rejected_count or len(decisions) != total
+                        or [d.row_index for d in decisions] != list(range(total))
+                        or tuple(d.source for d in decisions if d.action == "keep") != source_rows):
+                    raise ValueError("Decisions must account for every incoming row in order.")
+                valid_ids = {r["id"] for r in self._import_state(info.account_id)["transactions"]}
+                if any(not set(d.matching_transaction_ids) <= valid_ids for d in decisions):
+                    raise ValueError("Decision candidates must belong to the selected account.")
             import_id = self._connection.execute(
                 """INSERT INTO imports(account_id, sha256, parser_version, filename, imported_at,
                     total_count, imported_count, skipped_count, rejected_count)
@@ -261,7 +339,24 @@ class Repository:
                      row.reference, row.balance_minor, row.description, row.occurred_at,
                      row.amount_minor, row.currency, row.reference, row.balance_minor),
                 )
+            if decisions:
+                self._connection.executemany(
+                    """INSERT INTO import_decisions(import_id, row_index, action, reason,
+                        source_json, matching_ids_json) VALUES (?, ?, ?, ?, ?, ?)""",
+                    [(import_id, d.row_index, d.action, d.reason,
+                      json.dumps(asdict(d.source), ensure_ascii=False),
+                      json.dumps(d.matching_transaction_ids)) for d in decisions],
+                )
             return import_id
+
+    def get_import_decisions(self, import_id: int) -> list[dict]:
+        """Read the immutable disposition of each incoming row, in source order."""
+        self.get_import(import_id)
+        rows = self._rows("SELECT * FROM import_decisions WHERE import_id = ? ORDER BY row_index", (import_id,))
+        for row in rows:
+            row["source"] = json.loads(row.pop("source_json"))
+            row["matching_transaction_ids"] = json.loads(row.pop("matching_ids_json"))
+        return rows
 
     def get_import(self, import_id: int) -> dict:
         return self._one("imports", import_id)

@@ -67,3 +67,7 @@ class StatementParser(Protocol):
     def parse(self, path: str | Path) -> ParseResult:
         """Return records and static structured diagnostics; never write input."""
         ...
+
+    def parse_bytes(self, payload: bytes) -> ParseResult:
+        """Parse the exact in-memory snapshot hashed by the import service."""
+        ...

@@ -1,35 +1,36 @@
 # Status
 
-Steps 1–3 complete; Step 4 has not started. Existing UI, model/database layer,
-configuration, requirements, earlier tests, and user prompt remain unchanged.
+Steps 1–4 complete. Step 5 has not started. The UI, entry point, configuration,
+requirements, and real statement are unchanged.
 
-Step 3 implements the inspected Khan MNT parser, structured diagnostics,
-reconciliation, and a wholly synthetic XLSX fixture. Verified format facts and
-unresolved formats are in `docs/khan_format.md`; usage is in `docs/parsers.md`.
+Step 4 adds safe import preview/cancel/confirmation, counts, source fingerprints,
+multiplicity-aware overlap review, saved keep/skip decisions, atomic commits,
+and stale-preview protection. Khan has no verified unique reference: cross-file
+matches require explicit decisions. Identical file hashes are skipped per
+account. Manual categories, values, locks, and history are preserved.
 
 Public interfaces:
-- `StatementParser`: `version`, `detect(path)`, `parse(path)`.
-- `KhanParser`, version `khan-mnt-1`; `ParseResult` contains `metadata`, ordered
-  `records`, `issues`, `checks`, `candidate_row_count`, and `is_valid`.
-- `StatementMetadata`, `ParsedTransaction` (including `source: ImportRow`),
-  `ParseIssue`, and `ReconciliationCheck`.
-- Existing money/model, `Repository`, configuration, and application APIs remain
-  unchanged; see `docs/database.md` for storage APIs.
+- `ImportService(repository, parser=None, reference_policy=None)`:
+  `preview(path, account_id)`, `cancel(preview)`, `confirm(preview, decisions=None)`.
+- `ImportPreview`, `PreviewRow`, `ExistingRow`, `AmbiguousGroup`, `ImportResult`,
+  `ImportBlocked`, and evidence-based `VerifiedReferencePolicy` (no production
+  reference policy registered).
+- `Repository.get_import_state`, `get_import_decisions`; `write_import` adds
+  optional `expected_revision` and `decisions: ImportDecision` values.
+- Parser `parse_bytes` shares the exact hashed snapshot; existing path API remains.
 
-Checks (2026-10-19): parser acceptance passed **33 tests**; pre-commit full suite
-passed **72 tests**, using workspace `.venv`. Actual statement compatibility,
-reconciliations, and independent row-count/text/order checks passed. Original
-file hash unchanged. All 27 Git-ignore probes passed; no ignored files were
-staged. The 27-file commit scope passed the private-data scan.
+Schema v2 atomically migrates v1, adding immutable decision storage and a
+nonunique file-hash index. Earlier APIs remain compatible.
 
-Privacy audit found no generated copies containing real statement data and no
-exact workbook copies outside `private_statements/`; no deletion was needed.
-The original was neither modified nor deleted. Private files remain ignored
-and untracked. Only the wholly synthetic fixture is exempted from XLSX ignores.
+Checks: **105 unittest tests passed**, including **33 new import-service tests**
+and all 33 parser tests. Covered acceptance cases, synthetic Khan overlaps,
+rollback during rows/decisions, reopening, concurrent imports, and migration.
+Tests used synthetic data and workspace temporary files. Prompt 3's real
+statement verification remains recorded; no real statement was opened in Step 4.
 
-No POS pattern is verified; descriptions remain unsplit. Unsupported layouts,
-currencies, and missing formula caches are errors. Actions stayed inside the
-project; no packages were installed or database import performed. Tests used
-synthetic data and workspace temporary files. No app launch or push.
+Git verification: all 27 ignore probes passed; existing private financial files
+remain ignored and untracked. Local commit scope contains only the 13 reviewed
+Prompt 4 files. No packages installed, app launched, or push performed.
+Details: `docs/import_service.md`, `docs/database.md`, `docs/parsers.md`.
 
-Blockers: none for the supplied format. Next: await instruction for Prompt 4.
+Blockers: none. Next: await instruction for Prompt 5.

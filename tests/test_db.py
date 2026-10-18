@@ -55,7 +55,7 @@ class RepositoryTests(unittest.TestCase):
         with Repository(self.path) as reopened:
             self.assertEqual(reopened.list_categories(), before)
             self.assertEqual([(c["name"], c["direction"]) for c in before], expected)
-            self.assertEqual(reopened._connection.execute("PRAGMA user_version").fetchone()[0], 1)
+            self.assertEqual(reopened._connection.execute("PRAGMA user_version").fetchone()[0], db.SCHEMA_VERSION)
 
     def test_source_metadata_counts_and_unknown_state_are_preserved(self) -> None:
         source = self.row(reference="000456", balance_minor=998877, dedup_key="opaque-synthetic-key")

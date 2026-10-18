@@ -119,7 +119,39 @@ See `docs/parsers.md` for the implemented API and test commands.
 The exact requested filename was absent; one XLSX candidate was found under
 the workspace's `private_statements/` and verified locally. Its private name
 and financial values are intentionally not recorded here. No POS marker was
-observed, so no merchant separator is inferred. No Step 4 work is authorized.
+observed, so no merchant separator is inferred. Step 4 was subsequently
+explicitly authorized; the Step 3 parsing behavior remains unchanged.
+
+## Step 4 contract
+
+Implement only the import service using the existing parser and repository;
+do not build UI or classification. Workflow: select file/account, parse and
+validate, preview, explicit confirmation, atomic commit, then summary.
+Preview/cancel must not mutate the database. Expose valid, invalid, duplicate,
+and ambiguous counts; any transaction or statement error blocks all rows.
+Return success only after the complete commit succeeds.
+
+Skip identical SHA-256 files only for the same account. Use a bank reference
+as unique only after its stable uniqueness semantics are verified. Otherwise
+compare immutable account, currency, ISO date/time with precision, signed amount,
+original description, and optional reference/balance. Filename and sheet row
+are provenance. Preserve multiplicity; indistinguishable overlap requires an
+explicit per-row keep/skip decision and stored audit. Manual edits must neither
+change matching identity nor lose categories/locks on reimport. Write all rows,
+metadata, and decisions in one SQLite transaction. Do not claim universal
+deduplication; Khan has no verified unique reference.
+
+Expose preview/result models for later UI use. Necessary storage support is a
+small atomic version-1-to-2 migration for immutable import decisions, consistent
+source snapshots, and a revision guard checked inside the write transaction.
+`parse_bytes` lets hashing and parsing share one memory snapshot without making
+real-data disk copies. See `docs/import_service.md` for APIs and limitations.
+
+Use synthetic tests for first import, identical file repeat, overlapping
+verified test IDs, repeated legitimate rows, ambiguous decisions, malformed
+input, cancel, injected rollback, and edited transaction reimport. Test stale
+previews and migration as well. No packages, real statement reads/imports,
+application launch, commit, or push are needed. Await a new request for Step 5.
 
 ## Working rules
 
@@ -130,7 +162,7 @@ observed, so no merchant separator is inferred. No Step 4 work is authorized.
   repositories, unrelated files, and pre-existing Git changes.
 - Work only inside this project folder. Ask before installing packages; Step 2
   needs only the existing Python standard library and installs none.
-- Ask before any action outside this project folder. For Step 3 tests/fixture
+- Ask before any action outside this project folder. For tests/fixture
   generation, direct TEMP and TMP to `data/test-temp` inside the workspace;
   reuse the already installed openpyxl. Never print, log, or expose the user's
   name, account number, balances, or individual transaction details.

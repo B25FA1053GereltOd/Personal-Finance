@@ -7,6 +7,9 @@ layouts are explicitly unsupported until verified from a supplied statement.
 
 `app.parsers.base.StatementParser` is a protocol with `version`,
 `detect(path) -> bool`, and `parse(path) -> ParseResult`.
+Step 4 adds `parse_bytes(payload: bytes) -> ParseResult` so the import service
+hashes and parses the same in-memory bytes without a private temporary copy.
+The path entry point delegates to it; format interpretation is unchanged.
 `app.parsers.khan.KhanParser` implements it with version `khan-mnt-1`.
 Detection performs full validation; a recognizable but malformed, unreconciled,
 or unsupported-currency statement returns false. Parse it to obtain the reasons.
@@ -26,7 +29,8 @@ required. Unrelated nonmatching worksheets are not selected.
   row number, normalized ISO datetime, signed amount, MNT, and closing balance.
   `reference` remains None because this profile has no bank reference field;
   the counterparty account is not substituted for a reference. `dedup_key`
-  remains None until the later fingerprinting step.
+  remains None in parser results; the import service supplies versioned identity
+  fingerprints during preview without changing the original parser records.
 - `issues`: `ParseIssue` objects with a stable code, static message, severity,
   zero-based sheet index, one-based row number, and column letter where relevant.
   No message contains a cell value, filename, account, balance, or description.

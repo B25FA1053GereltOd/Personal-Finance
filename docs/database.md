@@ -1,9 +1,9 @@
-# Step 2 database and money API
+# Database and money API
 
-The window and entry point remain unchanged. Storage is available to later
-steps through `app.db.Repository`; running `python -m app` still only displays
-the Step 1 window. No parser, automatic classifier, import UI, or duplicate
-detector is implemented in this step.
+The window and entry point remain unchanged. Storage is available through
+`app.db.Repository`; running `python -m app` still displays the Step 1 window.
+Parsing and safe import orchestration are separate from this persistence layer.
+The import UI and automatic classifier remain future work.
 
 ## Opening and lifetime
 
@@ -19,11 +19,13 @@ category seeding, imports, edits with audit records, and rule changes are atomic
 Do not share a repository across threads or access its private connection in
 application code. Tests access it only to inject failures or verify constraints.
 
-The schema is version **1**, recorded with `PRAGMA user_version`. Repeated
+The schema is version **2**, recorded with `PRAGMA user_version`. Repeated
 initialization and reopening preserve category IDs and seed no additional rows.
 Unsupported versions and nonempty unversioned databases are refused, not
 overwritten. The schema uses SQLite STRICT tables (SQLite 3.37+) and JSON
-validation; this workspace has SQLite 3.53.4. No migration is needed yet.
+validation; this workspace has SQLite 3.53.4. Step 4 atomically migrates version 1
+by adding append-only import decisions and a nonunique account/file-hash index.
+Existing categories, imports, transactions, edits, and rules are preserved.
 
 ## Model inputs and values
 
@@ -33,8 +35,8 @@ validation; this workspace has SQLite 3.53.4. No migration is needed yet.
   Floats, booleans, non-finite values, grouped/locale-dependent text, excess
   decimal places (even `"1.230"`), and 64-bit integer overflow are rejected.
 - `ImportInfo(account_id=..., sha256=..., parser_version=..., filename=...)` is
-  frozen, validated metadata. Supply the actual file's SHA-256 from the import
-  layer when that layer exists; this repository does not read or hash files.
+  frozen, validated metadata. The import service supplies the actual file's
+  SHA-256; this repository does not read or hash files.
   Supply only the filename, not a path. SHA-256 is stored as lowercase hex.
 - `ImportRow(description=..., bank_datetime=..., occurred_at=..., amount_minor=...,
   worksheet=..., row_number=..., currency="MNT", reference=None,
@@ -43,7 +45,7 @@ validation; this workspace has SQLite 3.53.4. No migration is needed yet.
   `occurred_at` must already be an unambiguous ISO calendar date or a datetime
   with seconds, optional microseconds, and optional `Z`/UTC offset. The model
   validates dates and never guesses a locale or invents a missing time.
-  The later parser is responsible for interpreting the statement format.
+  The parser is responsible for interpreting the statement format.
 
 Account identifiers and optional references remain text, including leading
 zeros. Missing references and balances are stored as SQL NULL; zero and empty
@@ -64,7 +66,9 @@ rows or statement contents.
 | `initialize()` | Idempotent version check/initialization, also called on construction. |
 | `create_account(identifier, name, *, bank="Khan Bank", currency="MNT")` | Create an account; identifier must be text. Duplicate bank/identifier/currency is rejected. |
 | `list_accounts()`, `list_categories()` | Read accounts and the 13 exact seeded income/expense categories. |
-| `write_import(info, rows, *, skipped_count=0, rejected_count=0)` | Commit metadata and all supplied `ImportRow` values together, or none. Return import ID. |
+| `write_import(info, rows, *, skipped_count=0, rejected_count=0, expected_revision=None, decisions=())` | Commit metadata, supplied `ImportRow` values, and decisions together, or none. Optionally reject stale previews under the write lock. Return import ID. |
+| `get_import_state(account_id)` | Consistent read-only account/import/original-row snapshot and revision, unaffected by effective edits. Contains private data; never log it. |
+| `get_import_decisions(import_id)` | Read saved source-row dispositions, reasons, and candidate IDs in incoming order. |
 | `get_import(import_id)` | Read hash, account, parser version, filename, UTC import time, and counts. |
 | `get_transaction(transaction_id)` | Read original and effective values, provenance, and classification state. |
 | `query_transactions(...)` | Filter and paginate effective values; arguments are described below. |
@@ -123,11 +127,17 @@ imported + skipped + rejected. Caller-supplied skipped/rejected counts are
 nonnegative integers. The entire supplied iterable is consumed in the atomic
 write; a failing row leaves neither metadata nor earlier rows behind.
 
-Parser-specific fingerprints and duplicate detection remain deferred to Step 4.
-`dedup_key` is an optional opaque slot, immutable once inserted. It is not
-calculated or constrained unique here. Generated `source_id` is a row identity,
-not a content fingerprint. Repeated hashes, dates, amounts, and rows are allowed
-at this layer until the deduplication step defines the correct policy.
+Step 4 implements fingerprints and duplicate handling in the
+[import service](import_service.md). `dedup_key` remains optional and immutable;
+it is never constrained unique. Generated `source_id` identifies an occurrence,
+not its content. The low-level repository remains backward compatible;
+statement imports must use the service for preview and duplicate policy.
+`ImportDecision` supplies row index, source, keep/skip action, reason, and candidate
+IDs. If supplied, decisions must account for every incoming row; kept sources
+must equal the supplied rows in order, and candidates must belong to the selected
+account. A stale `expected_revision` raises `ImportStateChanged` before insertion.
+Decision writes and revision checking share the import transaction. Legacy
+imports have no decision entries.
 
 ## Verification
 
