@@ -197,6 +197,39 @@ locations, commit or push as part of this repair.
 See `docs/classification.md`. Final reports must state tests/count, changed files,
 and any remaining limitations without personal financial data.
 
+## Step 6 contract
+
+Step 6 is authorized: implement only the import and transaction browser UI using
+completed parser, repository, import and classification services. Do not duplicate
+SQL or parser logic in widgets. Keep `python -m app` and `create_window(data_dir)`;
+the UI now opens the configured `finance.sqlite3` on a persistent worker thread.
+
+Use ttk Import/Transactions tabs, an XLSX picker, explicit account selection and
+confirmation, preview/error display, per-row ambiguous Keep/Skip decisions and
+Commit/Cancel. Account creation is an explicit separate write. Preview/cancel
+must not mutate imports, transactions or accounts. Commit uses the existing
+atomic service; show success only afterward, including added/skipped/unclassified
+counts. Provide a visible action to the unclassified browser; full review and
+editing UI remain Step 7 and must not be implemented now.
+
+Provide date/category/direction/unclassified filters, literal Unicode description
+search, database pagination, readable MNT formatting and Mongolian text. Keep
+SQL in the repository: shared query/count filters add direction and NFC/casefold
+search without a schema change. Render bounded pages of preview/errors/candidates.
+
+`FinanceWorker` owns its connection and import preview/service on the same thread.
+Use queues for commands/results and Tk `after` polling on the main thread; no
+worker widget calls. Disable conflicting actions, sanitize failures, keep retry
+and cancel available, and queue shutdown after any running atomic operation.
+
+Use only synthetic fixtures and workspace data directories for agent checks.
+Do not use Computer Use, control mouse/keyboard, expose real financial data,
+install packages, commit or push for this step. Run automated tests, including
+service boundaries; provide the manual GUI checklist in `docs/ui.md`. Hidden
+widget tests are not visual verification. If Tk cannot initialize, mark GUI
+checks NOT RUN with the reason. Leave completed earlier services intact except
+the necessary repository filter/count extension.
+
 ## Working rules
 
 - Work inside the open VS Code workspace (`C:\Personal Finance`). Edit files

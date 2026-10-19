@@ -1,12 +1,13 @@
 """SQLite repository. All writes are atomic; source rows are immutable.
 
-The UI deliberately does not open this repository until its integration step.
+Each connection belongs to its creating thread, including the UI worker.
 See docs/database.md for the small public API and row field conventions.
 """
 
 import hashlib
 import json
 import sqlite3
+import unicodedata
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict
@@ -218,6 +219,11 @@ class Repository:
             path.parent.mkdir(parents=True, exist_ok=True)
         self._connection = sqlite3.connect(path, isolation_level=None)
         self._connection.row_factory = sqlite3.Row
+        self._connection.create_function(
+            "unicode_casefold", 1,
+            lambda value: unicodedata.normalize("NFC", unicodedata.normalize("NFC", value).casefold()),
+            deterministic=True,
+        )
         self._connection.execute("PRAGMA foreign_keys = ON")
         self._classifying_import_id: int | None = None
         try:
@@ -443,12 +449,39 @@ class Repository:
     def query_transactions(self, *, account_id: int | None = None, import_id: int | None = None,
                            kind: str | None = None, category_id: int | None = None,
                            review_only: bool = False, date_from: str | None = None,
-                           date_to: str | None = None, limit: int = 100, offset: int = 0) -> list[dict]:
+                           date_to: str | None = None, direction: str | None = None,
+                           search: str = "", limit: int = 100, offset: int = 0) -> list[dict]:
         """Filter effective values; stable bank-local ISO order, newest first."""
         require_integer(limit, "Page size", 1)
         if limit > 1000:
             raise ValueError("Page size cannot exceed 1000.")
         require_integer(offset, "Page offset", 0)
+        where, parameters = self._transaction_filter(
+            account_id=account_id, import_id=import_id, kind=kind, category_id=category_id,
+            review_only=review_only, date_from=date_from, date_to=date_to, direction=direction, search=search,
+        )
+        return self._rows(
+            "SELECT t.*, i.account_id FROM transactions t JOIN imports i ON i.id = t.import_id" + where
+            + " ORDER BY t.occurred_at DESC, t.id DESC LIMIT ? OFFSET ?", tuple(parameters + [limit, offset]),
+        )
+
+    def count_transactions(self, *, account_id: int | None = None, import_id: int | None = None,
+                           kind: str | None = None, category_id: int | None = None,
+                           review_only: bool = False, date_from: str | None = None,
+                           date_to: str | None = None, direction: str | None = None, search: str = "") -> int:
+        """Count with the same effective-value filters as the paginated query."""
+        where, parameters = self._transaction_filter(
+            account_id=account_id, import_id=import_id, kind=kind, category_id=category_id,
+            review_only=review_only, date_from=date_from, date_to=date_to, direction=direction, search=search,
+        )
+        return self._connection.execute(
+            "SELECT count(*) FROM transactions t JOIN imports i ON i.id = t.import_id" + where,
+            tuple(parameters),
+        ).fetchone()[0]
+
+    @staticmethod
+    def _transaction_filter(*, account_id, import_id, kind, category_id, review_only,
+                            date_from, date_to, direction, search):
         if type(review_only) is not bool:
             raise ValueError("review_only must be a boolean.")
         conditions, parameters = [], []
@@ -473,11 +506,17 @@ class Repository:
             raise ValueError("Start date must not be after end date.")
         if review_only:
             conditions.append("(t.kind = 'unclassified' OR (t.kind IN ('income', 'expense') AND t.category_id IS NULL))")
+        if direction is not None:
+            comparisons = {"debit": "<", "credit": ">", "zero": "="}
+            if direction not in comparisons:
+                raise ValueError("Direction must be debit, credit, or zero.")
+            conditions.append(f"t.amount_minor {comparisons[direction]} 0")
+        require_text(search, "Description search", allow_empty=True)
+        if search:
+            conditions.append("instr(unicode_casefold(t.description), unicode_casefold(?)) > 0")
+            parameters.append(search)
         where = " WHERE " + " AND ".join(conditions) if conditions else ""
-        return self._rows(
-            "SELECT t.*, i.account_id FROM transactions t JOIN imports i ON i.id = t.import_id" + where
-            + " ORDER BY t.occurred_at DESC, t.id DESC LIMIT ? OFFSET ?", tuple(parameters + [limit, offset]),
-        )
+        return where, parameters
 
     def _validate_category(self, kind: str, category_id: int | None) -> None:
         if kind not in KINDS:

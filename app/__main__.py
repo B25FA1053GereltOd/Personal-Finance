@@ -12,7 +12,13 @@ def main() -> None:
         raise SystemExit(f"Cannot start Personal Finance Tool: {error}") from error
 
     window = create_window(data_dir)
-    window.mainloop()
+    try:
+        window.mainloop()
+    finally:
+        # Also cover console interruption or an externally destroyed window.
+        # The worker finishes any atomic commit and closes its own connection.
+        window.finance_app.worker.stop()
+        window.finance_app.worker.thread.join()
 
 
 if __name__ == "__main__":

@@ -6,7 +6,8 @@ the database/model layer, exact money conversion, and repository operations.
 Step 3 supplies the verified Khan Bank MNT parser and synthetic workbook tests.
 Step 4 supplies preview/confirmation, conservative duplicate handling, and atomic
 imports with saved decisions. Step 5 adds scoped merchant rules, manual review,
-and explicit retroactive application. UI integration belongs to a later step.
+and explicit retroactive application. Step 6 adds the import and transaction
+browser UI. Full merchant review and editing screens remain for Step 7.
 Runtime is offline and requires no server, paid service, API key, or AI call.
 
 ## Setup in VS Code on Windows
@@ -86,9 +87,10 @@ Remove-Item Env:PERSONAL_FINANCE_DATA_DIR
 ```
 
 An empty override uses the default. Relative environment paths are rejected
-with an explanatory startup error. The existing window displays the resolved
-location without opening a database. Explicitly constructing `Repository()`
-creates `finance.sqlite3` in this directory; the UI will use it in a later step.
+with an explanatory startup error. The window displays the resolved location.
+Starting the app now opens/initializes `finance.sqlite3` there, owned by a worker
+thread. For synthetic verification, use the isolated workspace data directory
+in the [Step 6 manual checklist](docs/ui.md#manual-gui-checklist).
 
 ## Project and privacy
 
@@ -107,7 +109,7 @@ and checks balances and totals. `app/import_service.py` coordinates read-only
 preview/cancel and explicit confirmation before atomic storage. See the
 [import service API](docs/import_service.md) for counts, decisions, and limitations.
 Khan cross-file matches require explicit review because no unique bank reference
-is verified. The existing window remains unchanged.
+is verified. The Import tab exposes these decisions explicitly before Commit.
 `tests/fixtures/khan_synthetic.xlsx` is the sole XLSX Git-ignore exception and
 contains only invented test data.
 
@@ -127,6 +129,23 @@ original bank exports, or use them in tests.
 
 Read `AGENT_CONTEXT.md` and `STATUS.md` before any later implementation step;
 agents are not assumed to load these files automatically. Steps 1–5 services are
-implemented; supported Khan extraction and checks are recorded in `STATUS.md`.
+implemented and Step 6 adds the desktop import/browser; verification results
+and remaining GUI checks are recorded in `STATUS.md`.
 Later steps require a new instruction. Ask before installing any
 additional packages.
+
+## Import and browse
+
+Use **Import → Add account** to save a Khan Bank account with its exact statement
+IBAN as text. Choose an XLSX file, confirm the selected account, and click
+**Preview import**. Inspect errors and original incoming/existing rows; choose
+Keep/Skip for every ambiguous row. **Cancel preview** writes nothing; **Commit
+import** applies the existing atomic import/classification services. Account
+creation is a separate explicit action that persists even if a preview is canceled.
+
+The **Transactions** tab provides inclusive date bounds, category, debit/credit,
+unclassified and literal Unicode description search filters. Click **Apply /
+refresh** after changing filters. Pages contain 10, 25, 50 or 100 rows. **Review
+unknown merchants** opens the unclassified browser; category editing is deferred.
+See [UI architecture and manual verification](docs/ui.md). No real statements
+are used by automated tests.

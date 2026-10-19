@@ -1,9 +1,9 @@
 # Database and money API
 
-The window and entry point remain unchanged. Storage is available through
-`app.db.Repository`; running `python -m app` still displays the Step 1 window.
+Storage is available through `app.db.Repository`. The Step 6 desktop UI owns
+its repository on a dedicated worker thread.
 Parsing and safe import orchestration are separate from this persistence layer.
-The import UI remains future work. Classification services are documented in
+The UI delegates all storage/query logic to this layer. Classification services are documented in
 [classification.md](classification.md).
 
 ## Opening and lifetime
@@ -77,6 +77,7 @@ rows or statement contents.
 | `get_import(import_id)` | Read hash, account, parser version, filename, UTC import time, and counts. |
 | `get_transaction(transaction_id)` | Read original and effective values, provenance, and classification state. |
 | `query_transactions(...)` | Filter and paginate effective values; arguments are described below. |
+| `count_transactions(...)` | Count using the same filters as `query_transactions`, without `limit`/`offset`. |
 | `assign_category(transaction_id, category_id, *, reason)` | Explicit manual assignment; selects the category's kind and validates amount direction. `None` returns the item to unclassified review. |
 | `assign_categories(transaction_ids, category_id, *, reason)` | Atomic selected-only assignment; lock all selected rows or roll back all. |
 | `edit_transaction(transaction_id, *, reason, **changes)` | Atomically validate/edit effective fields and append an audit delta. Return the updated transaction. |
@@ -89,13 +90,21 @@ rows or statement contents.
 | `apply_rule(rule_id, selections, *, expected_revision)` | Atomic, audited selected-only application with rule/row revision and eligibility guards. |
 
 Query keyword filters: `account_id`, `import_id`, `kind`, `category_id`,
-`review_only`, `date_from`, and `date_to`. Defaults are `limit=100, offset=0`;
+`review_only`, `date_from`, `date_to`, `direction`, and `search`. Defaults are `limit=100, offset=0`;
 page size is 1–1000. Date bounds are inclusive `YYYY-MM-DD` values and refer to
 the stored effective bank-local date. Results are ordered by effective ISO
 timestamp text descending, then ID descending for stable ties. Offsets are
 preserved; this order is not a cross-timezone UTC chronology. `review_only=True`
 selects unclassified items and income/expense items without a category. Query
 results additionally include `account_id`.
+
+`direction` is `debit`, `credit`, `zero`, or `None`; it filters the effective
+amount sign without assuming income/expense kind. `search` defaults to empty
+and matches a literal substring of the effective description using NFC and
+Unicode casefolding. `%`, `_`, and quotes are literal characters, not SQL
+wildcards. The repository registers its casefold function on each connection.
+Count and page queries share one parameterized filter builder; the UI never
+duplicates SQL or filters an already paginated result in memory. No schema change.
 
 ## Immutable sources and manual edits
 
