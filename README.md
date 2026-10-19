@@ -5,7 +5,8 @@ Step 1 supplies the application window and development setup. Step 2 supplies
 the database/model layer, exact money conversion, and repository operations.
 Step 3 supplies the verified Khan Bank MNT parser and synthetic workbook tests.
 Step 4 supplies preview/confirmation, conservative duplicate handling, and atomic
-imports with saved decisions. UI integration belongs to a later step.
+imports with saved decisions. Step 5 adds scoped merchant rules, manual review,
+and explicit retroactive application. UI integration belongs to a later step.
 Runtime is offline and requires no server, paid service, API key, or AI call.
 
 ## Setup in VS Code on Windows
@@ -59,7 +60,7 @@ New-Item -ItemType Directory -Path $env:TEMP -Force | Out-Null
 ```
 
 These temporary-directory variables keep test files inside the project for the
-current terminal session. No additional packages are needed for Steps 3–4.
+current terminal session. No additional packages are needed for Steps 3–5.
 
 Workspace configuration uses the current `debugpy` launch type. Microsoft
 **Python** (`ms-python.python`), **Python Debugger** (`ms-python.debugpy`), and
@@ -110,6 +111,14 @@ is verified. The existing window remains unchanged.
 `tests/fixtures/khan_synthetic.xlsx` is the sole XLSX Git-ignore exception and
 contains only invented test data.
 
+`app/classification.py` supplies [classification and review services](docs/classification.md).
+Manual assignment affects selected transactions only and locks the choice;
+saving a rule does not change past rows. Khan purchase extraction removes only
+the user-confirmed six-character authorization prefix and uses the normalized
+complete remainder as the key. Credits, QPay and unsupported descriptions stay
+unclassified. See the verified format facts for scope and limitations. Tests
+use fictional values only.
+
 Keep all real bank files in `private_statements/`. Git ignores that directory,
 `.venv/`, data, backups, databases, Python caches, and common statement/export
 formats even outside that folder. Ignore rules do not protect files already
@@ -117,6 +126,7 @@ tracked by Git. Never commit real financial data, log statements, modify
 original bank exports, or use them in tests.
 
 Read `AGENT_CONTEXT.md` and `STATUS.md` before any later implementation step;
-agents are not assumed to load these files automatically. Steps 1–4 are
-implemented; later steps require a new instruction. Ask before installing any
+agents are not assumed to load these files automatically. Steps 1–5 services are
+implemented; supported Khan extraction and checks are recorded in `STATUS.md`.
+Later steps require a new instruction. Ask before installing any
 additional packages.

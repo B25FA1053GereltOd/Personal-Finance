@@ -50,10 +50,48 @@ facts only, with no customer values, workbook filename, or transaction samples.
   supplied workbook. The exact numeric OOXML values also satisfy the model's
   precision requirements.
 
+## Verified card/POS description structure
+
+On 2026-10-19 the user confirmed that descriptions consisting of a leading
+six-character alphanumeric authorization token, whitespace, and merchant text
+represent card/POS purchases. The token varies and is not merchant identity.
+Read-only local openpyxl inspection confirmed this structure in the supplied
+workbook; the observed matching rows are debits. This semantic confirmation
+comes from the user, not from a guessed meaning of arbitrary bank text.
+
+Supported structure: `<six ASCII letters/digits><spaces or tabs><nonempty text>`.
+Only that leading token and its whitespace separator are removed. The complete
+remaining text is the merchant display text, preserving case, internal spacing
+and trailing whitespace. The key uses NFC, casefolding, and trimmed/collapsed
+whitespace. It retains all numbers, punctuation, branch text, domains and
+locations; shorter merchant boundaries and optional suffix removal are not
+verified. A second code-like token in the remainder is retained.
+
+Production extraction is restricted to bank `Khan Bank`, parser `khan-mnt-1`,
+and negative source amounts. Rules additionally require negative effective
+amounts, an unlocked eligible kind, and an exact saved key. The authorization
+token has no verified uniqueness semantics: it is not promoted to a bank
+reference or deduplication ID. Original descriptions and source identity remain
+unchanged. Evidence is recorded as `khan-card-auth6-v1`.
+
+QPay-prefixed descriptions and payment wording were observed separately; neither
+supplies a verified merchant boundary. No transfer, fee, income or refund grammar
+is enabled. Malformed/unsupported descriptions, credits and zero amounts remain
+reviewable. Explicit QPay, transfer, fee, refund/reversal, credit/income or ATM
+wording causes conservative abstention even alongside a code-shaped prefix;
+this guard does not infer a new transaction type. Literal POS/ПОС prefixes,
+leading whitespace, multiline descriptions and non-ASCII authorization tokens
+are outside the supported grammar.
+
+The existing parser passed local source-row accounting, description-order
+preservation, and available reconciliation checks. The workbook's content hash
+was unchanged by inspection; no source values or hashes are recorded here.
+
 ## Unresolved or unobserved formats
 
-- No `POS` or `ПОС` marker was found in descriptions. A POS-specific pattern or
-  merchant separator is **not verified**; descriptions must remain intact.
+- No literal `POS` or `ПОС` marker was found. Support uses only the
+  user-confirmed authorization-prefix structure above; shorter merchant
+  boundaries and other card/POS formats remain unverified.
 - Other worksheet layouts, column orders, currencies, title/metadata layouts,
   date conventions, reference fields, subtotal/footer labels, and debit sign
   conventions have not been verified.

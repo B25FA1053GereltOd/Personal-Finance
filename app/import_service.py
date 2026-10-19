@@ -10,6 +10,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from app.db import ImportStateChanged, Repository
+from app.classification import ClassificationBlocked, ClassificationService
 from app.models import ImportDecision, ImportInfo, ImportRow, require_text
 from app.parsers.base import ParseIssue, ParseResult, StatementParser
 from app.parsers.khan import KhanParser
@@ -181,10 +182,14 @@ class ImportService:
     """Own in-memory previews; repository initialization precedes this workflow."""
 
     def __init__(self, repository: Repository, parser: StatementParser | None = None, *,
-                 reference_policy: VerifiedReferencePolicy | None = None) -> None:
+                 reference_policy: VerifiedReferencePolicy | None = None,
+                 classification: ClassificationService | None = None) -> None:
         self.repository = repository
         self.parser = parser if parser is not None else KhanParser()
         self.reference_policy = reference_policy
+        self.classification = classification if classification is not None else ClassificationService(repository)
+        if self.classification.repository is not repository:
+            raise ValueError("Import and classification must share the same repository.")
         self._pending: dict[str, ImportPreview] = {}
 
     def preview(self, path: str | Path, account_id: int) -> ImportPreview:
@@ -326,12 +331,15 @@ class ImportService:
                 import_id = self.repository.write_import(
                     preview.info, kept, skipped_count=skipped,
                     expected_revision=preview.revision, decisions=audit,
+                    classify=self.classification.classify_import,
                 )
             except ImportStateChanged:
                 raise ImportBlocked("Account imports changed; create a new preview before confirming.") from None
             except sqlite3.Error:
                 # SQLite/trigger exception text is not safe to show or log.
                 raise ImportBlocked("Import write failed; no rows or import metadata were committed.") from None
+            except ClassificationBlocked:
+                raise ImportBlocked("Import classification failed; no rows or import metadata were committed.") from None
             result = ImportResult(status="committed", import_id=import_id,
                                   imported_count=len(kept), skipped_count=skipped)
         del self._pending[preview.token]

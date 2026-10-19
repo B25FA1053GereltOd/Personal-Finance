@@ -118,9 +118,10 @@ See `docs/parsers.md` for the implemented API and test commands.
 
 The exact requested filename was absent; one XLSX candidate was found under
 the workspace's `private_statements/` and verified locally. Its private name
-and financial values are intentionally not recorded here. No POS marker was
-observed, so no merchant separator is inferred. Step 4 was subsequently
-explicitly authorized; the Step 3 parsing behavior remains unchanged.
+and financial values are intentionally not recorded here. No literal POS marker
+was observed. Steps 4 and 5 were subsequently authorized; Step 5 received user
+confirmation of the authorization-prefix purchase structure documented in
+`docs/khan_format.md`. The Step 3 parsing behavior remains unchanged.
 
 ## Step 4 contract
 
@@ -152,6 +153,49 @@ verified test IDs, repeated legitimate rows, ambiguous decisions, malformed
 input, cancel, injected rollback, and edited transaction reimport. Test stale
 previews and migration as well. No packages, real statement reads/imports,
 application launch, commit, or push are needed. Await a new request for Step 5.
+
+## Step 5 contract
+
+Step 5 was explicitly authorized. Implement classification/review services and
+connect them to atomic import commit; do not build UI or start Step 6. Use only
+deterministic saved rules, never AI calls. Extract POS merchants only from a
+verified description pattern. The user confirmed the six-character alphanumeric
+authorization token followed by whitespace and merchant text as card/POS
+purchases. Local inspection verified the structure; see `docs/khan_format.md`.
+For `Khan Bank` / `khan-mnt-1`, remove only that leading ASCII token and separator,
+then use the normalized complete remainder as the key. Preserve numbers,
+punctuation, domains, locations and display text; never guess shorter boundaries.
+Only debit purchases are eligible. QPay, transfers, fees, refunds, credits,
+malformed and unsupported descriptions remain reviewable. The token is not a
+verified unique bank reference; original source/deduplication identity is intact.
+Keep the synthetic extractor seam for tests, not as additional format evidence.
+
+Normalize NFC Unicode, trim/collapse whitespace and casefold while retaining
+digits, branch names and punctuation. Preserve display text and original bank
+descriptions. Match normalized keys exactly by bank and debit/credit direction,
+with one active rule per scope; no fuzzy/substring/regex matching or guessed
+real-merchant categories. Record applied rule IDs/revisions. Group reliable
+unknown POS merchants; keep missing keys individually reviewable.
+
+Transaction-only assignment is the safe default and must not create a rule.
+Provide selected-only category assignment, future-only rule save/update,
+read-only preview plus explicit selected-row retroactive application, protected
+manual reclassification, and rule disable/edit without changing past rows.
+Explicit Other assignments count as classified; unknowns never default to Other.
+Debit purchase rules cannot classify transfers, refunds, or non-POS credits.
+
+Use atomic schema-v3 migration for bank scope, disabled rules, and applied-rule
+attribution. Preserve legacy IDs; disable rules with unknown bank scope rather
+than guessing. Classification, imports, decisions and audits share one commit.
+Check locks/eligibility/revisions again when applying a preview; batch failures
+roll back all selected changes. Test normalization, distinct merchants, scope,
+missing keys, overrides/reimport, disabling, explicit subsets, rollback, and
+migration using workspace temporary files only. The user authorized read-only
+local statement checks for this pattern repair; expose only check outcomes and
+sanitized format facts. Do not launch the GUI, install packages, access external
+locations, commit or push as part of this repair.
+See `docs/classification.md`. Final reports must state tests/count, changed files,
+and any remaining limitations without personal financial data.
 
 ## Working rules
 

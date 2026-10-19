@@ -1,6 +1,7 @@
 """Validated inputs and exact MNT amounts for the persistence layer."""
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -169,3 +170,41 @@ class ImportDecision:
             raise ValueError("Matching transaction IDs must not repeat.")
         if self.action == "skip" and not self.matching_transaction_ids:
             raise ValueError("A skipped row must identify an existing candidate.")
+
+
+def normalize_merchant_key(text: str) -> str:
+    """Canonical Unicode + casefold + whitespace; keep digits and punctuation."""
+    require_text(text, "Merchant text")
+    return unicodedata.normalize("NFC", " ".join(unicodedata.normalize("NFC", text).casefold().split()))
+
+
+@dataclass(frozen=True, kw_only=True)
+class MerchantMatch:
+    """Evidence from a verified POS extractor; the display text stays intact."""
+
+    display_text: str = field(repr=False)
+    pattern: str
+    transaction_type: str = "purchase"
+
+    def __post_init__(self) -> None:
+        require_text(self.display_text, "Merchant display text")
+        require_text(self.pattern, "Verified merchant pattern")
+        if self.transaction_type not in ("purchase", "refund"):
+            raise ValueError("Merchant type must be a verified POS purchase or refund.")
+
+    @property
+    def key(self) -> str:
+        return normalize_merchant_key(self.display_text)
+
+
+@dataclass(frozen=True, kw_only=True)
+class RuleSelection:
+    transaction_id: int
+    revision: str = field(repr=False)
+    merchant: MerchantMatch = field(repr=False)
+
+    def __post_init__(self) -> None:
+        require_integer(self.transaction_id, "Transaction ID", 1)
+        require_text(self.revision, "Transaction revision")
+        if not isinstance(self.merchant, MerchantMatch):
+            raise ValueError("A verified merchant match is required.")

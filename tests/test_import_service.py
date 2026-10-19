@@ -413,7 +413,8 @@ class ImportServiceTests(unittest.TestCase):
 
     def test_schema_v1_migration_preserves_existing_data_and_is_idempotent(self):
         old_path = self.folder / "version-one.sqlite3"
-        with patch.object(db, "SCHEMA_VERSION", 1), patch.object(db, "_IMPORT_SCHEMA", ()):
+        with (patch.object(db, "SCHEMA_VERSION", 1), patch.object(db, "_IMPORT_SCHEMA", ()),
+              patch.object(db, "_CLASSIFICATION_SCHEMA", ())):
             with Repository(old_path) as old:
                 account = old.create_account("000009", "Synthetic legacy")
                 old.write_import(ImportInfo(account_id=account, sha256="c" * 64,
@@ -421,15 +422,16 @@ class ImportServiceTests(unittest.TestCase):
                 before = old.query_transactions()
                 categories = old.list_categories()
         with Repository(old_path) as migrated:
-            self.assertEqual(migrated.query_transactions(), before)
+            self.assertEqual([{key: row[key] for key in before[0]} for row in migrated.query_transactions()], before)
             self.assertEqual(migrated.list_categories(), categories)
             self.assertEqual(migrated.get_import_decisions(1), [])
             migrated.initialize()
-            self.assertEqual(migrated._connection.execute("PRAGMA user_version").fetchone()[0], 2)
+            self.assertEqual(migrated._connection.execute("PRAGMA user_version").fetchone()[0], db.SCHEMA_VERSION)
 
     def test_failed_schema_migration_is_atomic(self):
         old_path = self.folder / "failed-migration.sqlite3"
-        with patch.object(db, "SCHEMA_VERSION", 1), patch.object(db, "_IMPORT_SCHEMA", ()):
+        with (patch.object(db, "SCHEMA_VERSION", 1), patch.object(db, "_IMPORT_SCHEMA", ()),
+              patch.object(db, "_CLASSIFICATION_SCHEMA", ())):
             with Repository(old_path):
                 pass
         with patch.object(db, "_IMPORT_SCHEMA", db._IMPORT_SCHEMA + ("INVALID SYNTHETIC SQL",)):

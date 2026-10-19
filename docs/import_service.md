@@ -1,7 +1,8 @@
 # Safe import service (Step 4)
 
 `ImportService` coordinates the existing parser and repository. It has no UI,
-classifier, network calls, logging, or new package requirements. The caller
+network calls, logging, or new package requirements. Step 5 connects deterministic
+[classification services](classification.md) inside the import transaction. The caller
 opens a repository and selects an existing account first. Repository construction
 initializes/migrates storage; preview and cancel themselves never write it.
 
@@ -108,6 +109,15 @@ without previews; statement import callers must use `ImportService`.
 `ImportBlocked` provides safe messages for invalid input, decisions, stale
 previews, and database failures; raw SQLite exception text is suppressed.
 Success is returned only after commit completes.
+
+Step 5 supplies a `ClassificationService` automatically, or accepts one through
+`classification=` on the same repository. Its callback runs within `write_import`
+before the outer commit; classifications/audits roll back with rows and decisions.
+Rule changes affect future imports only unless old rows are explicitly selected
+through a rule preview. Khan merchant extraction supports only the confirmed
+authorization-prefix purchase pattern documented in `khan_format.md` and keeps
+the complete remainder as its key. Credits and unsupported descriptions remain
+unclassified. Authorization tokens do not change reference/deduplication policy.
 
 ## Checks
 

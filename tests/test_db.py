@@ -296,7 +296,7 @@ class RepositoryTests(unittest.TestCase):
         self.repo.upsert_rule(payload, "debit", "expense", self.expense)
         self.repo.edit_transaction(identifier, reason=payload, note=payload)
         self.assertEqual(self.repo.get_transaction(identifier)["original_description"], payload)
-        self.assertEqual(self.repo.list_rules()[0]["merchant_key"], payload)
+        self.assertEqual(self.repo.list_rules()[0]["merchant_key"], payload.casefold())
         self.assertEqual(self.repo.list_accounts()[0]["identifier"], "000123")
 
     def test_account_identifier_must_be_text(self) -> None:

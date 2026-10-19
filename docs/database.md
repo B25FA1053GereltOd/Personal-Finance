@@ -3,7 +3,8 @@
 The window and entry point remain unchanged. Storage is available through
 `app.db.Repository`; running `python -m app` still displays the Step 1 window.
 Parsing and safe import orchestration are separate from this persistence layer.
-The import UI and automatic classifier remain future work.
+The import UI remains future work. Classification services are documented in
+[classification.md](classification.md).
 
 ## Opening and lifetime
 
@@ -16,16 +17,20 @@ working directory; the default configuration remains independent of it.
 Each repository owns one sqlite3 connection with foreign keys enabled and
 explicit `BEGIN IMMEDIATE`/commit/rollback write transactions. Schema creation,
 category seeding, imports, edits with audit records, and rule changes are atomic.
+Nested writes use savepoints inside the same outer transaction.
 Do not share a repository across threads or access its private connection in
 application code. Tests access it only to inject failures or verify constraints.
 
-The schema is version **2**, recorded with `PRAGMA user_version`. Repeated
+The schema is version **3**, recorded with `PRAGMA user_version`. Repeated
 initialization and reopening preserve category IDs and seed no additional rows.
 Unsupported versions and nonempty unversioned databases are refused, not
 overwritten. The schema uses SQLite STRICT tables (SQLite 3.37+) and JSON
 validation; this workspace has SQLite 3.53.4. Step 4 atomically migrates version 1
 by adding append-only import decisions and a nonunique account/file-hash index.
 Existing categories, imports, transactions, edits, and rules are preserved.
+Version 3 adds bank-scoped active rules/revisions and merchant evidence/applied-rule
+fields. Earlier global rules retain IDs/text but are disabled with unknown bank
+scope, requiring explicit scoped recreation.
 
 ## Model inputs and values
 
@@ -66,17 +71,22 @@ rows or statement contents.
 | `initialize()` | Idempotent version check/initialization, also called on construction. |
 | `create_account(identifier, name, *, bank="Khan Bank", currency="MNT")` | Create an account; identifier must be text. Duplicate bank/identifier/currency is rejected. |
 | `list_accounts()`, `list_categories()` | Read accounts and the 13 exact seeded income/expense categories. |
-| `write_import(info, rows, *, skipped_count=0, rejected_count=0, expected_revision=None, decisions=())` | Commit metadata, supplied `ImportRow` values, and decisions together, or none. Optionally reject stale previews under the write lock. Return import ID. |
+| `write_import(info, rows, *, skipped_count=0, rejected_count=0, expected_revision=None, decisions=(), classify=None)` | Atomically write metadata, rows and decisions; run the optional classification callback before commit. Return import ID. |
 | `get_import_state(account_id)` | Consistent read-only account/import/original-row snapshot and revision, unaffected by effective edits. Contains private data; never log it. |
 | `get_import_decisions(import_id)` | Read saved source-row dispositions, reasons, and candidate IDs in incoming order. |
 | `get_import(import_id)` | Read hash, account, parser version, filename, UTC import time, and counts. |
 | `get_transaction(transaction_id)` | Read original and effective values, provenance, and classification state. |
 | `query_transactions(...)` | Filter and paginate effective values; arguments are described below. |
 | `assign_category(transaction_id, category_id, *, reason)` | Explicit manual assignment; selects the category's kind and validates amount direction. `None` returns the item to unclassified review. |
+| `assign_categories(transaction_ids, category_id, *, reason)` | Atomic selected-only assignment; lock all selected rows or roll back all. |
 | `edit_transaction(transaction_id, *, reason, **changes)` | Atomically validate/edit effective fields and append an audit delta. Return the updated transaction. |
 | `get_history(transaction_id)` | Read edits oldest first, with UTC time, reason, and decoded `changes` mapping of field to old/new values. |
-| `upsert_rule(merchant_key, direction, kind, category_id=None)` | Create/update a rule by exact merchant key and direction; return its stable ID. |
-| `list_rules()`, `delete_rule(rule_id)` | Read/delete merchant rules. No automatic rule application yet. |
+| `upsert_rule(merchant_key, direction, kind, category_id=None, *, bank="Khan Bank", active=True)` | Normalize key; save exact bank/key/direction scope, retaining display and stable ID; increment revision on updates. |
+| `get_rule(rule_id)`, `list_rules(include_disabled=False)` | Read rule(s); disabled rules are excluded from the list by default. |
+| `disable_rule(rule_id)`, `delete_rule(rule_id)` | Disable without changing past rows. The latter is a compatibility alias, not physical deletion. |
+| `classification_rows(import_id=None)` | Joined original/effective rows with bank/parser context, without pagination; private data, never log. |
+| `classify_import(import_id, merchants)` | Apply extracted evidence and compatible active rules to new unlocked/unclassified import rows. |
+| `apply_rule(rule_id, selections, *, expected_revision)` | Atomic, audited selected-only application with rule/row revision and eligibility guards. |
 
 Query keyword filters: `account_id`, `import_id`, `kind`, `category_id`,
 `review_only`, `date_from`, and `date_to`. Defaults are `limit=100, offset=0`;
@@ -106,9 +116,12 @@ are not accepted by the edit API. A manual edit sets `classification_source` to
 to unlock. Changes are validated as one combined final state. Only changed
 fields enter the compact JSON audit record; a no-op creates no audit record.
 If audit insertion fails, the effective edit rolls back too. History is append-only.
+Manual edits clear applied-rule ID/revision; audit preserves old attribution.
 
 New imports start with `kind="unclassified"`, no category or merchant key,
 `classification_source="unclassified"`, an empty note, and no manual lock.
+The import callback can record a verified merchant and apply a compatible saved
+rule before the encompassing import transaction commits.
 Positive/negative amounts alone never assign income/expense or an Other category.
 Income requires a positive effective amount; expense requires a negative one.
 A category, when present, must match the kind. Income/expense can remain without
@@ -117,10 +130,13 @@ sign including zero, and must have no income/expense category. To change the
 sign of a categorized transaction, supply a compatible kind/category in the
 same edit, or explicitly reset the kind and category to unclassified/None.
 
-Rules store exact caller-supplied merchant keys and `credit`, `debit`, or `zero`
-directions. Income/expense rules require compatible categories and signs;
-transfer/excluded rules must have no category. Rule changes never alter existing
-transactions or bypass their manual locks in this step.
+Rules store normalized keys, exact display text, bank scope, direction, active
+state and revision. Income/expense rules require compatible categories and signs.
+The low-level API retains zero/transfer/excluded inputs for compatibility; the
+classifier applies only compatible debit/expense and credit/income category rules.
+Saving/disabling rules never changes past transactions; only explicit retroactive
+application can update eligible unlocked old rows. Applied rule ID/revision and
+merchant display/pattern/type are separate from immutable source values.
 
 Import `imported_count` is computed from the supplied rows; `total_count` is
 imported + skipped + rejected. Caller-supplied skipped/rejected counts are
