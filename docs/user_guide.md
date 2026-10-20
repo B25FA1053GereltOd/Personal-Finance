@@ -1,7 +1,7 @@
 # Personal Finance: local user guide
 
-Launch by double-clicking `C:\Personal Finance\start.bat`, or run
-`& 'C:\Personal Finance\start.bat'` in PowerShell. The project-local .venv must already
+Launch by double-clicking `start.bat` in your clone, or run
+`.\start.bat` from its root in PowerShell. The project-local .venv must already
 be set up; follow README.md once. Startup errors stay visible. Administrator rights,
 internet, login, cloud services and API keys are not needed.
 
@@ -9,6 +9,72 @@ The footer and Help / About show the app version, database version and active da
 folder. Open data folder opens that exact directory in File Explorer. By default
 data lives in `%LOCALAPPDATA%\PersonalFinanceTool`; see README for the documented
 fallback and `PERSONAL_FINANCE_DATA_DIR` override.
+
+## Teacher smoke test (about 8 minutes)
+
+Do this after README setup/tests, with other app windows closed. Allow about eight
+minutes for the GUI checks; installation and automated test time are separate.
+Use only the generated fictional data. This is a manual checklist, not a claim
+that the final-audit agent ran it.
+
+1. In VS Code's PowerShell terminal at the cloned project root, prepare a new
+   isolated demo and print its exact paths:
+
+   ```powershell
+   $teacherRoot = (Get-Location).Path
+   $previousFinanceData = $env:PERSONAL_FINANCE_DATA_DIR
+   $env:PERSONAL_FINANCE_DATA_DIR = Join-Path $teacherRoot ('data\teacher-smoke-' + [guid]::NewGuid().ToString('N'))
+   .\.venv\Scripts\python.exe -c "import os; from tests.dashboard_fixture import create_dashboard_database; create_dashboard_database(os.environ['PERSONAL_FINANCE_DATA_DIR'])"
+   $teacherBackups = Join-Path $env:PERSONAL_FINANCE_DATA_DIR 'manual-backups'
+   New-Item -ItemType Directory -Path $teacherBackups -Force | Out-Null
+   $teacherCsv = Join-Path $env:PERSONAL_FINANCE_DATA_DIR 'synthetic-export.csv'
+   Write-Output "Data: $env:PERSONAL_FINANCE_DATA_DIR"
+   Write-Output "Backup folder: $teacherBackups"
+   Write-Output "CSV file: $teacherCsv"
+   Push-Location (Join-Path $teacherRoot 'docs')
+   & (Join-Path $teacherRoot 'start.bat')
+   Pop-Location
+   ```
+
+   **Expect:** the app launches even from `docs`, and its footer shows the printed
+   synthetic directory. The generator refuses an existing database; it never
+   opens a real one. Keep this terminal open.
+2. Open **Dashboard**, choose **All time** and refresh. **Expect:** 10 rows and
+   1 unclassified item; MNT income 1,200.00, expenses 150.00, net 1,050.00;
+   USD income 10.00, expenses 2.50, net 7.50. Currencies stay separate.
+3. Select the MNT **Other expenses** category and click **View selected in Transactions**.
+   **Expect:** two rows totaling 130.10 in expenses. In Transactions reset dates,
+   category, account, currency, direction, search and unclassified-only to show
+   everything, then **Apply / refresh**. **Expect:** all 10 transactions.
+4. Click **Export CSV** and use the exact printed CSV destination. **Expect:**
+   success for 10 exported transactions. Do not reuse an existing filename.
+5. Click **Backup** and select the printed backup folder. **Expect:** a validated
+   success message with a new timestamped database path. Click **Restore**, select
+   that backup, inspect the preview, then choose **No / Cancel** at confirmation.
+   **Expect:** validation succeeds and cancellation keeps the 10 transactions.
+   This deliberately does not test replacement of the live database.
+6. Open **Help / About**, then **Open data folder**. **Expect:** app 0.9.0, schema 3
+   and the printed synthetic directory; File Explorer opens that directory.
+7. Close the app. In the same terminal run:
+
+   ```powershell
+   & (Join-Path $teacherRoot 'start.bat')
+   ```
+
+   **Expect:** the same directory, 10 transactions and the same All-time totals.
+   Close the app again, then restore the prior terminal setting:
+
+   ```powershell
+   $env:PERSONAL_FINANCE_DATA_DIR = $previousFinanceData
+   ```
+
+   **Expect:** demo databases, backups and CSV remain in the ignored demo folder;
+   nothing is deleted. Never launch from File Explorer to continue this isolated
+   test: it will not inherit the terminal's temporary data-directory override.
+
+Confirmed restore/restart, malformed input dialogs, and extended date/refresh
+checks are separate optional manual checks in the detailed checklist below and
+[dashboard.md](dashboard.md). They remain pending unless actually performed.
 
 ## Daily use
 

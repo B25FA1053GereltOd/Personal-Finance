@@ -20,23 +20,42 @@ filter, Help/About and Open data folder. Start with the
 [user guide](docs/user_guide.md). Requirement-by-requirement verification and
 limitations are recorded in [acceptance.md](docs/acceptance.md).
 
-## Setup in VS Code on Windows
+## Teacher quick start: clone and set up on Windows
 
-Open **C:\Personal Finance** as the workspace folder. The existing
-`Personal-Finance/Prompt.txt` is a reference file; run commands from the workspace
-root, where this README and `app/` live.
+Use Python **3.11 or newer** with Tcl/Tk and SQLite **3.37 or newer**, Git and
+VS Code. The code uses `hashlib.file_digest` and SQLite STRICT tables. These are
+compatibility minimums from code inspection, not a tested version matrix. The
+tested environment is Python **3.15.0**, SQLite **3.53.4**, openpyxl **3.1.5** and
+et_xmlfile **2.0.0**. The app is version 0.9.0; the database schema is version 3.
 
-In **Terminal > New Terminal**, choose **PowerShell**:
+The configured remote below was checked locally on 2026-10-21. Its accessibility
+and inclusion of the latest local work have **not** been checked, and this audit
+did not push anything. A teacher can use these instructions after the intended
+revision is made available. See [release audit](docs/requirements_audit.md).
+
+In Windows PowerShell, choose a new folder and clone once:
 
 ```powershell
-Set-Location 'C:\Personal Finance'
+$teacherProject = Join-Path $env:USERPROFILE 'PersonalFinanceDemo'
+git clone 'https://github.com/B25FA1053GereltOd/Personal-Finance.git' "$teacherProject"
+Set-Location $teacherProject
+code .
+```
+
+If `code` is unavailable, use VS Code **File > Open Folder** and select the
+`PersonalFinanceDemo` folder. Open the folder containing this README, `app/` and
+`tests/`; the author's ignored nested `Personal-Finance/` folder is not needed.
+In **Terminal > New Terminal**, choose **PowerShell**. Run from that project root:
+
+```powershell
 python --version
-# Create only if .venv does not already exist:
+python -c "import sys, sqlite3; assert sys.version_info >= (3, 11), 'Python 3.11+ required'; assert sqlite3.sqlite_version_info >= (3, 37, 0), 'SQLite 3.37+ required'"
+# Continue only if both checks pass. Create once in a fresh clone:
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip check
 .\.venv\Scripts\python.exe -m tkinter
 # Close the Tk demo before continuing.
-.\.venv\Scripts\python.exe -m app
 ```
 
 Reuse an existing working `.venv`; do not recreate it during normal runs. All
@@ -56,8 +75,8 @@ not a pip dependency.
 ## Interpreter, running, debugging, and tests
 
 1. Open the Command Palette and choose **Python: Select Interpreter**.
-2. Choose **Enter interpreter path** and select
-   `C:\Personal Finance\.venv\Scripts\python.exe`.
+2. Choose **Enter interpreter path** and select `.venv\Scripts\python.exe`
+   inside the folder you cloned (the author's workspace is `C:\Personal Finance`).
 3. In **Run and Debug**, select **Personal Finance Tool**. Use **F5** to debug
    or **Ctrl+F5** to run. Both use module `app` and the workspace as the working
    directory. Close the window with **Close** or its title-bar **X**.
@@ -67,6 +86,7 @@ not a pip dependency.
 $env:TEMP = Join-Path (Get-Location).Path 'data\test-temp'
 $env:TMP = $env:TEMP
 New-Item -ItemType Directory -Path $env:TEMP -Force | Out-Null
+$env:PERSONAL_FINANCE_SKIP_GUI_TESTS = '1'
 .\.venv\Scripts\python.exe -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
@@ -84,6 +104,38 @@ view; add Pylance for language analysis. An interpreter previously selected in
 VS Code can override the default setting, so explicitly select `.venv` above.
 See `STATUS.md` for what was actually verified, including any NOT RUN checks.
 
+## Start with synthetic demo data only
+
+Keep the same PowerShell terminal open. This creates a new database containing
+only invented records; the generator refuses to overwrite an existing database.
+
+```powershell
+$previousFinanceData = $env:PERSONAL_FINANCE_DATA_DIR
+$env:PERSONAL_FINANCE_DATA_DIR = Join-Path (Get-Location).Path ('data\teacher-demo-' + [guid]::NewGuid().ToString('N'))
+.\.venv\Scripts\python.exe -c "import os; from tests.dashboard_fixture import create_dashboard_database; create_dashboard_database(os.environ['PERSONAL_FINANCE_DATA_DIR'])"
+Write-Output "Synthetic data directory: $env:PERSONAL_FINANCE_DATA_DIR"
+.\start.bat
+```
+
+Expect 10 transactions and 1 unclassified item. All-time MNT income/expenses/net
+are **1,200.00 / 150.00 / 1,050.00**; USD totals are **10.00 / 2.50 / 7.50**.
+These are fictional test amounts, not bank balances. Follow the
+[under-10-minute smoke procedure](docs/user_guide.md#teacher-smoke-test-about-8-minutes).
+The committed `tests\fixtures\khan_synthetic.xlsx` is also wholly synthetic.
+To generate additional import/review workbooks in the ignored data folder:
+
+```powershell
+.\.venv\Scripts\python.exe -c "from tests.review_fixtures import create_review_fixtures; create_review_fixtures('data/review-fixtures')"
+```
+
+Their exact names, fictional account and review steps are in
+[review_ui.md](docs/review_ui.md). No real statements or databases are supplied.
+Restart the demo with `.\start.bat` in the **same terminal**, keeping the same
+environment variable. After closing the demo and finishing its checks, restore
+the previous setting with `$env:PERSONAL_FINANCE_DATA_DIR = $previousFinanceData`.
+Launching from File Explorer does not inherit this terminal's temporary override;
+use PowerShell for isolated demos.
+
 ## Data folder
 
 The default is `%LOCALAPPDATA%\PersonalFinanceTool`. If `LOCALAPPDATA` is absent
@@ -93,7 +145,7 @@ working directory. Override it for the current PowerShell session with an
 absolute path:
 
 ```powershell
-$env:PERSONAL_FINANCE_DATA_DIR = 'C:\Personal Finance\data'
+$env:PERSONAL_FINANCE_DATA_DIR = Join-Path (Get-Location).Path 'data'
 .\.venv\Scripts\python.exe -m app
 # Restore the default for this terminal:
 Remove-Item Env:PERSONAL_FINANCE_DATA_DIR
@@ -178,7 +230,7 @@ or month and open its Transactions to investigate it. Successful imports, edits,
 classifications and rule applications refresh the report automatically.
 
 After one-time setup, launch from PowerShell with `.\start.bat`, or double-click
-`C:\Personal Finance\start.bat`. It runs the existing workspace virtual environment
+`start.bat` in your clone. It runs the existing workspace virtual environment
 from the project directory, preserves startup errors and performs no installs.
 It inherits `PERSONAL_FINANCE_DATA_DIR` when launched from that terminal.
 Launcher execution for Step 8: **PASS, user-confirmed 2026-10-20**, using the
@@ -220,7 +272,7 @@ differs; no administrator rights, install step or internet is needed for normal 
 Run the final automated checks in workspace PowerShell:
 
 ```powershell
-Set-Location 'C:\Personal Finance'
+# Run from the project root containing README.md and app/.
 $env:TEMP = Join-Path (Get-Location).Path 'data\test-temp'
 $env:TMP = $env:TEMP
 New-Item -ItemType Directory -Path $env:TEMP -Force | Out-Null
@@ -239,3 +291,9 @@ export, backup, restore preview validation/Cancel preserving the database,
 Help/About version/data directory and Open data folder. Confirmed restore/restart
 and extended GUI checks remain optional/pending, not failed; see the short
 [isolated synthetic checklist](docs/user_guide.md#synthetic-manual-acceptance).
+
+Final audit (2026-10-21): the same **233 discovered / 228 passed / 0 failed /
+5 skipped** result was reproduced; all 42 Python files parsed and all app modules
+imported without starting Tk. `pip check` passed. No runtime changes or new
+dependencies were needed. The requirements, Git-history/privacy audit and remaining
+handoff limitations are in [requirements_audit.md](docs/requirements_audit.md).

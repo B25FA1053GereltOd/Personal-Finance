@@ -315,6 +315,28 @@ export, backup, restore validation/Cancel, Help/About and Open data folder.
 Confirmed restore/restart was not reported as manually tested. The user authorized
 one local Prompt 9 commit after rerunning tests and ignore checks; no push.
 
+## Step 10 final audit scope
+
+The user explicitly chose final audit only, not the optional monthly-summary
+feature. Preserve Steps 1-9; make only demonstrated release fixes and documentation
+improvements. Trace original requirements in docs/requirements_audit.md and keep
+historical user GUI checks separate from current automated checks. Document clone,
+setup, synthetic demo generation and a short teacher smoke test with exact Windows
+PowerShell commands. Do not claim the remote contains unpublished local work.
+
+Audit tracked and reachable Git-history filenames and permitted source/config
+text for privacy risks without opening real financial files. Stop and report if a
+possible private-data leak is found. Never access private_statements, launch/control
+the GUI, touch the nested repository, install packages, contact/change the remote,
+stage, commit or push. Use the existing .venv and synthetic workspace test files.
+Run full tests, syntax/whitespace and ignore checks. No optional feature was added.
+
+On 2026-10-21 the user accepted the final audit and confirmed the existing Step 8
+and Step 9 smoke tests are sufficient for these documentation-only changes; no
+additional GUI test is required. The user authorized a local commit of only
+README.md, STATUS.md, AGENT_CONTEXT.md, docs/user_guide.md, docs/acceptance.md and
+docs/requirements_audit.md after whitespace and staged-file privacy checks. No push.
+
 ## Working rules
 
 - Work inside the open VS Code workspace (`C:\Personal Finance`). Edit files

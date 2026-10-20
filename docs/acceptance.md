@@ -6,6 +6,26 @@ contract is the baseline. Existing functionality was preserved; Step 9 explicitl
 authorized restore/export/usability additions. No critical service is a placeholder.
 This is an automated acceptance result, not a claim of complete visual verification.
 
+## Prompt 10 final audit (2026-10-21)
+
+The user chose **final audit only**. No optional monthly summary, application
+changes or new dependencies were added. The complete suite again returned
+**233 discovered, 228 passed, 0 failed/errors, 5 explicitly skipped GUI tests**.
+All 42 Python files passed syntax checks, app modules imported without Tk startup,
+and whitespace and installed-dependency checks passed. A copied launcher without
+a venv produced the expected actionable error from another current directory;
+the application itself was not launched. All 32 synthetic ignore probes passed.
+
+[requirements_audit.md](requirements_audit.md) maps all 14 scoped requirements to
+implementation/tests and records the reachable Git-history and credential-pattern
+audit. No privacy candidate or release-blocking application failure was found.
+Teacher clone/setup/synthetic-demo instructions and an eight-minute checklist were
+added. **Handoff remains PARTIAL** because a fresh-machine install and the remote's
+availability/published revision are NOT RUN; no remote was contacted. Current GUI
+execution is NOT RUN; historical user passes below remain separate evidence.
+Optional extended GUI checks remain pending, not failures. These documentation
+changes are unstaged and uncommitted; no push or private-file access occurred.
+
 ## Automated result
 
 Full discovery: **233 tests; 228 passed, 0 failed/errors, 5 explicitly skipped GUI
