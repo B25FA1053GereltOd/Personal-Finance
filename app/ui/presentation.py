@@ -8,7 +8,7 @@ def format_mnt(minor: int | None) -> str:
 
 
 def browser_filters(date_from="", date_to="", category_id=None, direction=None,
-                    review_only=False, search="") -> dict:
+                    review_only=False, search="", currency=None) -> dict:
     start, end = date_from.strip() or None, date_to.strip() or None
     try:
         for value in (start, end):
@@ -20,8 +20,11 @@ def browser_filters(date_from="", date_to="", category_id=None, direction=None,
         raise ValueError("Enter valid dates as YYYY-MM-DD, or leave them blank.") from None
     if start and end and start > end:
         raise ValueError("The start date must not be after the end date.")
-    return dict(date_from=start, date_to=end, category_id=category_id,
-                direction=direction, review_only=review_only, search=search.strip())
+    result = dict(date_from=start, date_to=end, category_id=category_id,
+                  direction=direction, review_only=review_only, search=search.strip())
+    if currency is not None:
+        result["currency"] = currency
+    return result
 
 
 def review_status(row: dict) -> str:

@@ -253,6 +253,39 @@ financial files, launch/control the GUI, use Computer Use, stage, commit or push
 Run the full automated suite and distinguish headless checks from pending manual
 GUI verification. See docs/review_ui.md for commands and exact manual steps.
 
+## Step 8 contract
+
+The user explicitly confirmed BOTH Dashboard and backup/launcher scope. Preserve
+Steps 1–7. Keep reporting outside Tk widgets: exact integer money, Decimal
+percentages, separate currencies, categorized income/expense totals and visible
+unclassified counts. Transfer/excluded amounts are omitted. Net means income minus
+expenses, not bank balance. Use inclusive effective bank-local dates, calendar
+presets and validated ISO custom bounds; category/month drill-down carries the
+same date/currency filters. Refresh after imports, edits, classification and rule
+application through the existing worker/main-thread queue. Provide empty/error
+states and bounded table rendering without chart dependencies.
+
+Back up using SQLite's backup API on the connection-owning worker. Reserve new
+timestamped names exclusively, validate before success, and report sanitized,
+actionable failures. Manual restore closes the app, validates a separate copy
+using integrity/foreign-key/schema compatibility checks, preserves the current
+database, then prepares the restored file without overwriting existing files.
+Never delete user data/imports. Test independent backup reopening and temporary
+restore with invented transactions/rules. `start.bat` runs the existing .venv's
+module app from its own directory with visible startup errors and no installs.
+
+Use synthetic workspace data only. Do not access private_statements or real
+financial files, launch the GUI, use Computer Use, alter the nested repository,
+install packages, stage, commit or push. Run full automated tests plus syntax and
+whitespace checks. Record tested versions honestly; launcher/visual checks are
+NOT RUN until manually verified. See docs/dashboard.md and docs/backup_restore.md
+for exact synthetic verification and operating instructions.
+
+On 2026-10-20 the user confirmed the synthetic launcher/Dashboard smoke checks
+passed and stopped the remaining extended checklist. Record unrun checks as
+optional/pending, not failures. The user subsequently authorized one local
+Prompt 8 commit after rerunning tests and privacy checks; no push is authorized.
+
 ## Working rules
 
 - Work inside the open VS Code workspace (`C:\Personal Finance`). Edit files

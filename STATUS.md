@@ -1,36 +1,37 @@
 # Status
 
-Steps 1-7 complete. User confirmed Step 7 GUI verification passed
-on 2026-10-20. No later step started.
+Steps 1-7 complete. Step 8 Dashboard and backup/launcher implemented.
 
-Review groups reliable unknown merchants with counts, totals, examples and paged
-expandable transactions; unreliable/protected items remain individually available.
-Selected-only assignment is the default. A read-only preview precedes confirmation;
-optional future-rule saving and selected assignments commit atomically. Skip/cancel
-write nothing. Stale transaction/rule snapshots are rejected.
+Dashboard provides currency totals, classified income/expenses/net,
+unclassified counts, category percentages and monthly tables.
+Inclusive calendar presets/custom ISO dates and category/month drill-down retain
+currency/date filters. Import, edit, classification and rule application refresh
+through the existing worker queue. Transfers/excluded/unknown amounts are omitted;
+net is not a bank balance. Source identities and schema v3 are unchanged.
 
-The editor supports effective ISO date, exact signed money, description, merchant
-display, kind/category and note, with read-only source and history tabs. Manual
-protection defaults on; clearing it is explicit. Source fields, matching keys and
-deduplication identity survive corrections. Rule list/edit/disable affects future
-imports only; retroactive changes require preview and explicit eligible selection.
+Backup uses SQLite's backup API, exclusive timestamped destinations and integrity,
+foreign-key/schema validation before success. Restore preparation validates a
+separate file without overwriting data. start.bat uses .venv with visible errors.
 
-Public interfaces: ReviewService load/preview_assignment/confirm_assignment/cancel,
-preview_rule/apply_rule/change_rule, edit_get/edit_save. FinanceWorker adds review_,
-rule_ and edit_ commands. Repository.atomic composes existing APIs; merchant_display
-is now an independently editable, validated, audited field. Schema v3 is unchanged.
+Public APIs: ReportingService.summarize, date_range, category_filters,
+month_filters; Repository.reporting_rows, backup_to, schema_definition and currency
+query/count filters; backup.create_backup, validate_backup, prepare_restore.
+Worker commands: dashboard and backup. Manual instructions: docs/dashboard.md
+and docs/backup_restore.md; tested versions in README.md.
 
-Checks (2026-10-20): full discovery **188 tests: 183 passed, 5 GUI tests explicitly
-skipped**. Thirteen new service/worker/headless-controller checks cover cancellation,
-rollback, future tagging, protected edits/reimport, source preservation, validation,
-stale operations, selected-only retroactive changes, disabling and persistence.
-GUI acceptance is user-verified; no agent visual verification claimed.
+Checks (2026-10-20): full suite 207 discovered, 202 passed, 0 failed, 5 GUI tests
+explicitly skipped. Synthetic tests cover calculations, dates, currencies,
+drill-down, refresh/restart, error recovery, independent backups, WAL, collisions,
+rollback-safe failures and CLI temporary restore. Syntax/whitespace and ignore
+checks passed. Only Step 8 source, tests, documentation and launcher are selected
+for the local commit. No private financial files accessed or staged;
+no agent GUI launch, dependency install, nested-repository change or push.
 
-Synthetic fixtures: data/review-fixtures/review-initial.xlsx, review-future.xlsx,
-review-disabled.xlsx. Exact manual commands and steps: docs/review_ui.md.
-Pre-commit ignore checks cover private statements, financial exports, data/retest
-databases, SQLite sidecars, backups, .venv and the nested repository. Only Step 7
-source, tests and documentation are selected. No private contents accessed or
-logged; no GUI launched, packages installed or push performed.
+User-confirmed smoke PASS (2026-10-20): start.bat, isolated synthetic directory,
+Dashboard opening, MNT/USD all-time totals/counts and income/expense category
+totals/percentages.
 
-Blockers: none. Next: await further authorization.
+Optional/pending, NOT RUN (not failures): monthly tables, presets/custom date
+validation, drill-down, mutation refresh, restart persistence, backup UI and manual
+restore. The user stopped the extended checklist. Blockers: none for this commit.
+Next: await direction; do not resume the checklist.

@@ -78,6 +78,9 @@ rows or statement contents.
 | `get_transaction(transaction_id)` | Read original and effective values, provenance, and classification state. |
 | `query_transactions(...)` | Filter and paginate effective values; arguments are described below. |
 | `count_transactions(...)` | Count using the same filters as `query_transactions`, without `limit`/`offset`. |
+| `reporting_rows(date_from=None, date_to=None)` | Single-query snapshot of effective date, money, kind and category fields for ReportingService; no source descriptions. |
+| `backup_to(destination)` | SQLite backup API on this connection's thread; caller reserves the new destination. Rejects an active write transaction. |
+| `schema_definition()` | Schema signature used for conservative restore compatibility checks. |
 | `assign_category(transaction_id, category_id, *, reason)` | Explicit manual assignment; selects the category's kind and validates amount direction. `None` returns the item to unclassified review. |
 | `assign_categories(transaction_ids, category_id, *, reason)` | Atomic selected-only assignment; lock all selected rows or roll back all. |
 | `edit_transaction(transaction_id, *, reason, **changes)` | Atomically validate/edit effective fields and append an audit delta. Return the updated transaction. |
@@ -91,7 +94,8 @@ rows or statement contents.
 | `apply_rule(rule_id, selections, *, expected_revision)` | Atomic, audited selected-only application with rule/row revision and eligibility guards. |
 
 Query keyword filters: `account_id`, `import_id`, `kind`, `category_id`,
-`review_only`, `date_from`, `date_to`, `direction`, and `search`. Defaults are `limit=100, offset=0`;
+`review_only`, `date_from`, `date_to`, `direction`, `currency`, and `search`. Currency
+is an optional exact uppercase three-letter code. Defaults are `limit=100, offset=0`;
 page size is 1–1000. Date bounds are inclusive `YYYY-MM-DD` values and refer to
 the stored effective bank-local date. Results are ordered by effective ISO
 timestamp text descending, then ID descending for stable ties. Offsets are
@@ -120,7 +124,7 @@ an imported account's identifier/bank/currency also cannot change.
 
 Editable effective fields are `description`, `occurred_at`, `amount_minor`,
 `currency` (must still match the account), `reference`, `balance_minor`, `kind`,
-`category_id`, `merchant_key`, `note`, and `manual_lock`. Source/identity fields
+`category_id`, `merchant_key`, `merchant_display`, `note`, and `manual_lock`. Source/identity fields
 are not accepted by the edit API. A manual edit sets `classification_source` to
 `manual` and defaults `manual_lock` to true; explicitly pass the boolean false
 to unlock. Changes are validated as one combined final state. Only changed

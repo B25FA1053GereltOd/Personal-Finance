@@ -1,5 +1,10 @@
 # Step 7: Review, manual corrections and rules
 
+Step 8 preserves this workflow. Successful confirmations, edits and explicit rule
+applications also refresh the Dashboard automatically. Synthetic cross-feature
+checks are in [dashboard.md](dashboard.md); GUI verification of Step 8 remains
+manual, distinct from the previously passed Step 7 acceptance.
+
 The Review tab groups reliable unknown merchants by exact bank/key/direction.
 Each group shows count, signed total and an example description. Select a group
 or use Expand selected group to see its transactions. Items without reliable

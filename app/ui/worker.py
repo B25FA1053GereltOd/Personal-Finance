@@ -9,6 +9,8 @@ from app.db import Repository
 from app.import_service import ImportBlocked, ImportService
 from app.classification import ClassificationBlocked
 from app.review_service import ReviewBlocked, ReviewService
+from app.reporting import ReportingError, ReportingService
+from app.backup import BackupError, create_backup
 
 
 @dataclass(frozen=True)
@@ -53,6 +55,7 @@ class FinanceWorker:
             repository = self._repository_factory(self.database)
             service = self._service_factory(repository)
             review = ReviewService(repository)
+            reporting = ReportingService(repository)
             self.events.put(Event("ready", {"accounts": repository.list_accounts(),
                                            "categories": repository.list_categories()}))
             while True:
@@ -112,6 +115,10 @@ class FinanceWorker:
                             except Exception:
                                 pass
                         result = {"result": committed, "unclassified": unclassified}
+                    elif operation == "backup":
+                        result = create_backup(repository, payload["folder"])
+                    elif operation == "dashboard":
+                        result = reporting.summarize(**payload)
                     elif operation == "browse":
                         filters = payload.get("filters", {})
                         size = payload.get("page_size", 50)
@@ -125,7 +132,7 @@ class FinanceWorker:
                     else:
                         raise ImportBlocked("Unsupported action.")
                     self.events.put(Event(operation, result))
-                except (ImportBlocked, ReviewBlocked, ClassificationBlocked) as error:
+                except (ImportBlocked, ReviewBlocked, ClassificationBlocked, ReportingError, BackupError) as error:
                     self.events.put(Event(operation, error=str(error)))
                 except Exception:
                     # Exception strings may contain identifiers, SQL or source text.
@@ -134,6 +141,8 @@ class FinanceWorker:
                         "browse": "Transactions could not be loaded. Check filters and try again.",
                         "preview": "Preview failed. Check the selected file and account, then try again.",
                         "commit": "Import could not be completed. Cancel and create a fresh preview before retrying.",
+                        "dashboard": "Dashboard could not be loaded. No data was changed. Try Refresh; if it persists, close and reopen the app.",
+                        "backup": "Backup could not be completed. Check folder permissions, disk space and drive availability, then retry.",
                     }
                     self.events.put(Event(operation, error=messages.get(operation, "Action failed. Refresh or cancel the preview before trying again; check category and direction compatibility.")))
             if preview is not None:

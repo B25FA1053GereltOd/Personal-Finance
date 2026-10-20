@@ -252,7 +252,7 @@ class ReviewViews:
         self.edit_fields = {}
         self.editor_actions = []
         data = [("occurred_at", "ISO date / time", row["occurred_at"]),
-                ("amount", "Signed MNT (decimal, no commas)", str(minor_to_money(row["amount_minor"]))),
+                ("amount", f"Signed {row['currency']} (decimal, no commas)", str(minor_to_money(row["amount_minor"]))),
                 ("description", "Description", row["description"]),
                 ("merchant_display", "Merchant display (does not change matching key)", row["merchant_display"] or ""),
                 ("kind", "Kind", row["kind"]),

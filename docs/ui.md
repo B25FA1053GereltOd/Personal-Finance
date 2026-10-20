@@ -1,5 +1,14 @@
 # Import and transaction browser (Step 6)
 
+Step 8 retains these workflows and adds a currency filter, currency-aware amount
+display, a Dashboard tab and toolbar Backup action. See [dashboard.md](dashboard.md)
+and [backup_restore.md](backup_restore.md) for exact synthetic manual checks.
+Reporting and backup commands run on the existing database worker. After a
+successful import/edit/classification/rule application, stale Dashboard rows are
+cleared and a refresh is queued after the browser/review refresh chain. Category
+and monthly drill-down reset unrelated browser filters and carry date/currency
+bounds through subsequent browsing and pagination. No SQL lives in widgets.
+
 `python -m app` opens the ttk Import and Transactions tabs, using
 `get_data_dir() / "finance.sqlite3"`. The UI shows local financial values only
 inside the application, never logs them, and performs no network or AI calls.

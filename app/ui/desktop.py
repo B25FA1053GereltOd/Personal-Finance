@@ -8,6 +8,8 @@ from tkinter import filedialog, messagebox, ttk
 from app.ui.presentation import browser_filters, format_mnt, issue_location, review_status
 from app.ui.worker import FinanceWorker
 from app.ui.review import ReviewViews, selected_items
+from app.ui.dashboard import DashboardView
+from app.reporting import format_money
 
 
 class PagedTable(ttk.Frame):
@@ -75,6 +77,7 @@ class DesktopApp:
         self.active_filters = {}
         self.account_dialog = None
         self.review_views = None
+        self.dashboard, self.dashboard_dirty = None, True
         self.file_path = tk.StringVar(window)
         self.account_text = tk.StringVar(window)
         self.account_confirmed = tk.BooleanVar(window, False)
@@ -85,6 +88,7 @@ class DesktopApp:
         self.date_from, self.date_to, self.search = (tk.StringVar(window) for _ in range(3))
         self.category_text = tk.StringVar(window, "All categories")
         self.direction_text = tk.StringVar(window, "All directions")
+        self.currency_text = tk.StringVar(window, "All currencies")
         self.review_only = tk.BooleanVar(window, False)
         self.page_size = tk.StringVar(window, "50")
         self.browser_caption = tk.StringVar(window, "No transactions loaded")
@@ -106,7 +110,9 @@ class DesktopApp:
         top = ttk.Frame(root, padding=(16, 10))
         top.grid(row=0, column=0, sticky="ew")
         ttk.Label(top, text="Personal Finance", font=("Segoe UI", 20, "bold")).pack(side="left")
-        ttk.Label(top, text="Local · Offline · MNT").pack(side="right")
+        ttk.Label(top, text="Local · Offline").pack(side="right")
+        self.backup_button = ttk.Button(top, text="Backup…", command=self._backup)
+        self.backup_button.pack(side="right", padx=12)
         self.tabs = ttk.Notebook(root)
         self.tabs.grid(row=1, column=0, sticky="nsew", padx=12)
         self.import_tab = ttk.Frame(self.tabs, padding=10)
@@ -116,6 +122,7 @@ class DesktopApp:
         self._build_import()
         self._build_browser()
         self.review_views = ReviewViews(self, PagedTable)
+        self.dashboard = DashboardView(self, PagedTable)
         footer = ttk.Frame(root, padding=(16, 8))
         footer.grid(row=2, column=0, sticky="ew")
         footer.columnconfigure(0, weight=1)
@@ -233,6 +240,10 @@ class DesktopApp:
         self.edit_button = edit
         edit.pack(side="left", padx=4)
         self.filter_widgets.extend((search, review, apply, reset, edit))
+        ttk.Label(filters, text="Currency").grid(row=4, column=0, sticky="w", padx=4)
+        self.currency_box = ttk.Combobox(filters, textvariable=self.currency_text, values=("All currencies",), state="readonly")
+        self.currency_box.grid(row=5, column=0, sticky="ew", padx=4)
+        self.filter_widgets.append(self.currency_box)
         for column in range(4):
             filters.columnconfigure(column, weight=1)
         browser_messages = ttk.Frame(tab)
@@ -281,6 +292,8 @@ class DesktopApp:
             self._enabled(widget, idle)
         if hasattr(self, "edit_button"):
             self._enabled(self.edit_button, selecting)
+        if hasattr(self, "backup_button"):
+            self._enabled(self.backup_button, selecting)
         self._enabled(self.browser_previous, idle and self.browser_page > 0)
         self._enabled(self.browser_next, idle and (self.browser_page + 1) * int(self.page_size.get()) < self.browser_total)
         if self.busy:
@@ -289,13 +302,16 @@ class DesktopApp:
             self.progress.stop()
         if self.review_views is not None:
             self.review_views.sync()
+        if self.dashboard is not None:
+            self.dashboard.sync()
 
     def _request(self, operation, **payload):
         if self.busy or not self.ready or self.closing:
             return False
         self.busy = True
         self.status.set({"preview": "Parsing and validating statement…", "commit": "Committing the complete import…",
-                         "cancel": "Canceling preview…", "account": "Saving account…", "browse": "Loading transactions…"}.get(operation, "Processing review action…"))
+                         "cancel": "Canceling preview…", "account": "Saving account…", "browse": "Loading transactions…",
+                         "dashboard": "Calculating Dashboard…", "backup": "Creating and validating backup…"}.get(operation, "Processing review action…"))
         self._sync_controls()
         try:
             self.worker.submit(operation, **payload)
@@ -319,8 +335,17 @@ class DesktopApp:
             self.summary.set("")
             self._sync_controls()
 
+    def _backup(self):
+        if self.busy:
+            return
+        folder = filedialog.askdirectory(parent=self.window, title="Choose a local backup folder", mustexist=True)
+        if folder:
+            self._request("backup", folder=folder)
+
     def _set_accounts(self, accounts, selected=None):
         self.accounts = accounts
+        if hasattr(self, "currency_box"):
+            self.currency_box.configure(values=["All currencies"] + sorted({a["currency"] for a in accounts}))
         self.account_box.configure(values=[f'{a["name"]} — {a["identifier"]} ({a["bank"]}, {a["currency"]})' for a in accounts])
         if accounts:
             index = next((i for i, a in enumerate(accounts) if a["id"] == selected), 0)
@@ -422,7 +447,8 @@ class DesktopApp:
             self.active_filters = browser_filters(
                 self.date_from.get(), self.date_to.get(), self.categories[index - 1]["id"] if index > 0 else None,
                 None if self.direction_text.get() == "All directions" else self.direction_text.get().lower(),
-                self.review_only.get(), self.search.get())
+                self.review_only.get(), self.search.get(),
+                currency=None if self.currency_text.get() == "All currencies" else self.currency_text.get())
         except ValueError as error:
             self._error(str(error))
             return
@@ -434,12 +460,29 @@ class DesktopApp:
         self.search.set("")
         self.category_text.set("All categories")
         self.direction_text.set("All directions")
+        self.currency_text.set("All currencies")
         self.review_only.set(False)
         self.review_hint.set("")
         self._apply_filters()
 
     def _browse(self, page=0):
         self._request("browse", filters=dict(self.active_filters), page=max(0, page), page_size=int(self.page_size.get()))
+
+    def _dashboard_drill(self, filters):
+        self.date_from.set(filters.get("date_from") or "")
+        self.date_to.set(filters.get("date_to") or "")
+        self.currency_text.set(filters["currency"])
+        category_id = filters.get("category_id")
+        index = next((i + 1 for i, c in enumerate(self.categories) if c["id"] == category_id), 0)
+        self.category_box.current(index)
+        self.category_text.set(self.categories[index - 1]["name"] if index else "All categories")
+        self.direction_text.set("All directions")
+        self.review_only.set(False)
+        self.search.set("")
+        self.review_hint.set("Dashboard selection: date and currency filters are applied.")
+        self.active_filters = dict(filters)
+        self.tabs.select(self.transactions_tab)
+        self._browse(0)
 
     def _review_unknown(self):
         if self.busy:
@@ -449,6 +492,7 @@ class DesktopApp:
         self.search.set("")
         self.category_text.set("All categories")
         self.direction_text.set("All directions")
+        self.currency_text.set("All currencies")
         self.review_only.set(True)
         self.review_hint.set("Transactions awaiting review. Use Review to classify or edit selected rows.")
         self.active_filters = browser_filters(review_only=True)
@@ -493,6 +537,8 @@ class DesktopApp:
                 continue
             self.busy = False
             if event.error:
+                if event.operation == "dashboard" and self.dashboard is not None:
+                    self.dashboard.clear(event.error)
                 if event.operation == "fatal":
                     self.ready = False
                 if self.account_dialog is not None:
@@ -505,11 +551,21 @@ class DesktopApp:
                 except Exception:
                     self._error("The operation finished but its view could not be updated. Refresh the view before continuing.")
             self._sync_controls()
+        if self.dashboard is not None and self.dashboard_dirty and self.ready and not self.busy and not self.closing:
+            self.dashboard.refresh()
         self._poll_id = self.window.after(40, self._poll)
 
     def _handle(self, operation, payload):
         self.status.set("Ready")
-        if operation.startswith(("review_", "rule_", "edit_")):
+        if operation in ("commit", "review_apply", "rule_apply", "edit_save"):
+            self.dashboard_dirty = True
+            if self.dashboard is not None:
+                self.dashboard.clear("Transactions changed; refreshing Dashboard…")
+        if operation == "backup":
+            self.status.set(f"Backup completed and validated: {payload}")
+        elif operation == "dashboard":
+            self.dashboard.display(payload)
+        elif operation.startswith(("review_", "rule_", "edit_")):
             self.review_views.handle(operation, payload)
         elif operation == "ready":
             self.ready = True
@@ -565,7 +621,7 @@ class DesktopApp:
             self.browser_page, self.browser_total = payload["page"], payload["total"]
             categories = {c["id"]: c["name"] for c in self.categories}
             self.transactions.set_items(payload["rows"], lambda row: (
-                row["occurred_at"].replace("T", " "), row["merchant_display"] or row["description"], format_mnt(row["amount_minor"]),
+                row["occurred_at"].replace("T", " "), row["merchant_display"] or row["description"], format_money(row["amount_minor"], row["currency"]),
                 categories.get(row["category_id"], "—"), review_status(row)))
             pages = max(1, (payload["total"] + payload["page_size"] - 1) // payload["page_size"])
             self.browser_caption.set(f"Page {self.browser_page + 1} of {pages} · {self.browser_total} transactions")

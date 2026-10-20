@@ -10,6 +10,10 @@ and explicit retroactive application. Step 6 adds the import and transaction
 browser UI. Step 7 adds grouped merchant review, effective-value editing with
 read-only bank references/history, and explicit rule management. See the
 [synthetic Step 7 manual checklist](docs/review_ui.md).
+Step 8 adds currency-separated Dashboard tables, local SQLite backups, validated
+manual restore preparation, and `start.bat`. See the exact
+[synthetic Dashboard checklist](docs/dashboard.md) and
+[backup/restore instructions](docs/backup_restore.md).
 Runtime is offline and requires no server, paid service, API key, or AI call.
 
 ## Setup in VS Code on Windows
@@ -63,7 +67,10 @@ New-Item -ItemType Directory -Path $env:TEMP -Force | Out-Null
 ```
 
 These temporary-directory variables keep test files inside the project for the
-current terminal session. No additional packages are needed for Steps 3–5.
+current terminal session. No additional packages are needed for Steps 3–8.
+For headless verification without launching Tk windows, set
+`$env:PERSONAL_FINANCE_SKIP_GUI_TESTS = '1'` before running unittest. Those GUI
+tests will be explicitly skipped, not reported as visually verified.
 
 Workspace configuration uses the current `debugpy` launch type. Microsoft
 **Python** (`ms-python.python`), **Python Debugger** (`ms-python.debugpy`), and
@@ -130,8 +137,8 @@ tracked by Git. Never commit real financial data, log statements, modify
 original bank exports, or use them in tests.
 
 Read `AGENT_CONTEXT.md` and `STATUS.md` before any later implementation step;
-agents are not assumed to load these files automatically. Steps 1–5 services are
-implemented and Step 6 adds the desktop import/browser; verification results
+agents are not assumed to load these files automatically. Steps 1–8 are
+implemented; verification results
 and remaining GUI checks are recorded in `STATUS.md`.
 Later steps require a new instruction. Ask before installing any
 additional packages.
@@ -145,9 +152,43 @@ Keep/Skip for every ambiguous row. **Cancel preview** writes nothing; **Commit
 import** applies the existing atomic import/classification services. Account
 creation is a separate explicit action that persists even if a preview is canceled.
 
-The **Transactions** tab provides inclusive date bounds, category, debit/credit,
+The **Transactions** tab provides inclusive date bounds, category, currency, debit/credit,
 unclassified and literal Unicode description search filters. Click **Apply /
 refresh** after changing filters. Pages contain 10, 25, 50 or 100 rows. **Review
-unknown merchants** opens the unclassified browser; category editing is deferred.
+unknown merchants** opens grouped review. Assign selected rows only by default,
+or explicitly save a future merchant rule; preview before confirming bulk changes.
+Edit a selected transaction's effective fields while viewing immutable source and
+history tabs. Manual assignments remain protected. Rules can be edited/disabled
+without changing past rows; retroactive application requires explicit selection.
 See [UI architecture and manual verification](docs/ui.md). No real statements
 are used by automated tests.
+
+## Dashboard, backup and everyday launch
+
+The Dashboard shows classified income, expenses and net cash flow separately for
+each currency, unknown counts, category amounts/counts/percentages and monthly
+tables. Net is income minus expenses, not the bank balance. Unclassified,
+transfer and excluded amounts do not enter those totals. Choose All time, This
+month, Last month, This year or an inclusive custom ISO range. Select a category
+or month and open its Transactions to investigate it. Successful imports, edits,
+classifications and rule applications refresh the report automatically.
+
+After one-time setup, launch from PowerShell with `.\start.bat`, or double-click
+`C:\Personal Finance\start.bat`. It runs the existing workspace virtual environment
+from the project directory, preserves startup errors and performs no installs.
+It inherits `PERSONAL_FINANCE_DATA_DIR` when launched from that terminal.
+Launcher execution for Step 8: **PASS, user-confirmed 2026-10-20**, using the
+isolated synthetic directory. Dashboard opening, all-time currency totals/counts
+and income/expense category amounts/percentages also passed the user's smoke test.
+Extended GUI checks remain optional/pending (NOT RUN), not failures; see the checklist.
+
+Use **Backup** to select a local folder. Success means SQLite's backup API and
+integrity/schema validation completed; existing snapshots are never overwritten.
+For restore, close the app, validate a separate copy, preserve the current database,
+then prepare the validated backup in the configured location. Follow the complete
+[manual restore and tested temporary exercise](docs/backup_restore.md); never
+copy a live database file directly or delete statement files.
+
+Tested existing environment on 2026-10-20: Python 3.15.0, SQLite 3.53.4,
+openpyxl 3.1.5 and et_xmlfile 2.0.0. Imported Tcl/Tk constants: 9.0/9.0;
+Step 8 GUI smoke testing was performed by the user only. No dependency changes or installs.

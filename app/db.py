@@ -10,6 +10,7 @@ import sqlite3
 import unicodedata
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
+from contextlib import closing
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -208,6 +209,13 @@ def classification_revision(row: dict) -> str:
     return hashlib.sha256(json.dumps(row, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
+def schema_definition(connection):
+    """Stable application schema fingerprint for conservative restore validation."""
+    return tuple(tuple(row) for row in connection.execute(
+        "SELECT type, name, tbl_name, sql FROM sqlite_schema "
+        "WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name"))
+
+
 class Repository:
     """Own one connection; use as a context manager or explicitly close()."""
 
@@ -240,6 +248,16 @@ class Repository:
 
     def close(self) -> None:
         self._connection.close()
+
+    def backup_to(self, destination) -> None:
+        """Snapshot via SQLite on this connection's owning thread, never raw copy."""
+        if self._connection.in_transaction:
+            raise ValueError("Finish the current write before taking a backup.")
+        with closing(sqlite3.connect(destination)) as target:
+            self._connection.backup(target)
+
+    def schema_definition(self):
+        return schema_definition(self._connection)
 
     @contextmanager
     def atomic(self) -> Iterator[None]:
@@ -456,7 +474,8 @@ class Repository:
                            kind: str | None = None, category_id: int | None = None,
                            review_only: bool = False, date_from: str | None = None,
                            date_to: str | None = None, direction: str | None = None,
-                           search: str = "", limit: int = 100, offset: int = 0) -> list[dict]:
+                           search: str = "", currency: str | None = None,
+                           limit: int = 100, offset: int = 0) -> list[dict]:
         """Filter effective values; stable bank-local ISO order, newest first."""
         require_integer(limit, "Page size", 1)
         if limit > 1000:
@@ -464,7 +483,7 @@ class Repository:
         require_integer(offset, "Page offset", 0)
         where, parameters = self._transaction_filter(
             account_id=account_id, import_id=import_id, kind=kind, category_id=category_id,
-            review_only=review_only, date_from=date_from, date_to=date_to, direction=direction, search=search,
+            review_only=review_only, date_from=date_from, date_to=date_to, direction=direction, search=search, currency=currency,
         )
         return self._rows(
             "SELECT t.*, i.account_id FROM transactions t JOIN imports i ON i.id = t.import_id" + where
@@ -474,11 +493,12 @@ class Repository:
     def count_transactions(self, *, account_id: int | None = None, import_id: int | None = None,
                            kind: str | None = None, category_id: int | None = None,
                            review_only: bool = False, date_from: str | None = None,
-                           date_to: str | None = None, direction: str | None = None, search: str = "") -> int:
+                           date_to: str | None = None, direction: str | None = None, search: str = "",
+                           currency: str | None = None) -> int:
         """Count with the same effective-value filters as the paginated query."""
         where, parameters = self._transaction_filter(
             account_id=account_id, import_id=import_id, kind=kind, category_id=category_id,
-            review_only=review_only, date_from=date_from, date_to=date_to, direction=direction, search=search,
+            review_only=review_only, date_from=date_from, date_to=date_to, direction=direction, search=search, currency=currency,
         )
         return self._connection.execute(
             "SELECT count(*) FROM transactions t JOIN imports i ON i.id = t.import_id" + where,
@@ -487,7 +507,7 @@ class Repository:
 
     @staticmethod
     def _transaction_filter(*, account_id, import_id, kind, category_id, review_only,
-                            date_from, date_to, direction, search):
+                            date_from, date_to, direction, search, currency=None):
         if type(review_only) is not bool:
             raise ValueError("review_only must be a boolean.")
         conditions, parameters = [], []
@@ -501,6 +521,10 @@ class Repository:
                 raise ValueError("Unknown transaction kind.")
             conditions.append("t.kind = ?")
             parameters.append(kind)
+        if currency is not None:
+            validate_currency(currency)
+            conditions.append("t.currency = ?")
+            parameters.append(currency)
         for operator, value in ((">=", date_from), ("<=", date_to)):
             if value is not None:
                 validate_iso(value)
@@ -523,6 +547,20 @@ class Repository:
             parameters.append(search)
         where = " WHERE " + " AND ".join(conditions) if conditions else ""
         return where, parameters
+
+    def reporting_rows(self, date_from=None, date_to=None) -> list[dict]:
+        """One read snapshot of effective reporting fields, without source text.
+
+        Return individual integer amounts rather than SQLite SUM, whose signed
+        64-bit accumulator can overflow even when each stored amount is valid.
+        """
+        where, parameters = self._transaction_filter(
+            account_id=None, import_id=None, kind=None, category_id=None,
+            review_only=False, date_from=date_from, date_to=date_to, direction=None, search="")
+        return self._rows(
+            "SELECT t.occurred_at, t.currency, t.amount_minor, t.kind, t.category_id, c.name AS category_name "
+            "FROM transactions t LEFT JOIN categories c ON c.id = t.category_id" + where,
+            tuple(parameters))
 
     def _validate_category(self, kind: str, category_id: int | None) -> None:
         if kind not in KINDS:
