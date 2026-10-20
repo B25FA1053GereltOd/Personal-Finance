@@ -82,6 +82,7 @@ rows or statement contents.
 | `assign_categories(transaction_ids, category_id, *, reason)` | Atomic selected-only assignment; lock all selected rows or roll back all. |
 | `edit_transaction(transaction_id, *, reason, **changes)` | Atomically validate/edit effective fields and append an audit delta. Return the updated transaction. |
 | `get_history(transaction_id)` | Read edits oldest first, with UTC time, reason, and decoded `changes` mapping of field to old/new values. |
+| `atomic()` | Compose existing write APIs under one transaction; nested operations retain savepoint/rollback behavior. Used for selected category assignment plus future rule saving. |
 | `upsert_rule(merchant_key, direction, kind, category_id=None, *, bank="Khan Bank", active=True)` | Normalize key; save exact bank/key/direction scope, retaining display and stable ID; increment revision on updates. |
 | `get_rule(rule_id)`, `list_rules(include_disabled=False)` | Read rule(s); disabled rules are excluded from the list by default. |
 | `disable_rule(rule_id)`, `delete_rule(rule_id)` | Disable without changing past rows. The latter is a compatibility alias, not physical deletion. |

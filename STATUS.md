@@ -1,29 +1,36 @@
 # Status
 
-Steps 1-6 complete. The user confirmed Prompt 6 manual GUI acceptance passed
-on 2026-10-19 after the import/browser repair. Step 7 is not started.
+Steps 1-7 complete. User confirmed Step 7 GUI verification passed
+on 2026-10-20. No later step started.
 
-Step 6 provides ttk Import/Transactions tabs, account confirmation, paged preview
-and diagnostics, explicit duplicate decisions, atomic commit/cancel, import
-counts, unknown-review navigation, filters, Unicode search and pagination.
-A queue-driven worker owns its repository and service on one thread.
+Review groups reliable unknown merchants with counts, totals, examples and paged
+expandable transactions; unreliable/protected items remain individually available.
+Selected-only assignment is the default. A read-only preview precedes confirmation;
+optional future-rule saving and selected assignments commit atomically. Skip/cancel
+write nothing. Stale transaction/rule snapshots are rejected.
 
-Repair: account-level validation errors now appear alongside row counts with
-an actionable mismatch explanation. Successful previews clear stale diagnostics.
-Successful commits switch to Transactions, clear filters and reload page one;
-the summary appears in both tabs. Matching-account regression tests save and
-list all three synthetic rows. Existing validation and schema v3 are unchanged.
+The editor supports effective ISO date, exact signed money, description, merchant
+display, kind/category and note, with read-only source and history tabs. Manual
+protection defaults on; clearing it is explicit. Source fields, matching keys and
+deduplication identity survive corrections. Rule list/edit/disable affects future
+imports only; retroactive changes require preview and explicit eligible selection.
 
-Public interfaces: create_window(data_dir), python -m app;
-FinanceWorker.submit/stop/events; Repository.query_transactions adds direction
-and search; count_transactions shares filters. No SQL or parser logic in widgets.
+Public interfaces: ReviewService load/preview_assignment/confirm_assignment/cancel,
+preview_rule/apply_rule/change_rule, edit_get/edit_save. FinanceWorker adds review_,
+rule_ and edit_ commands. Repository.atomic composes existing APIs; merchant_display
+is now an independently editable, validated, audited field. Schema v3 is unchanged.
 
-Pre-commit checks (2026-10-19): full discovery found **175 tests: 170 passed,
-5 GUI tests explicitly skipped** with PERSONAL_FINANCE_SKIP_GUI_TESTS=1.
-The user supplied manual GUI verification; no agent visual verification claimed.
-Ignore checks cover private statements, bank exports, data/retest databases,
-SQLite sidecars, backups, .venv and the nested Personal-Finance repository.
-Only Prompt 6 source, tests and documentation are selected for the local commit.
-No private contents accessed or displayed during commit preparation; no push.
+Checks (2026-10-20): full discovery **188 tests: 183 passed, 5 GUI tests explicitly
+skipped**. Thirteen new service/worker/headless-controller checks cover cancellation,
+rollback, future tagging, protected edits/reimport, source preservation, validation,
+stale operations, selected-only retroactive changes, disabling and persistence.
+GUI acceptance is user-verified; no agent visual verification claimed.
 
-Blockers: none. Next: await explicit authorization for Step 7.
+Synthetic fixtures: data/review-fixtures/review-initial.xlsx, review-future.xlsx,
+review-disabled.xlsx. Exact manual commands and steps: docs/review_ui.md.
+Pre-commit ignore checks cover private statements, financial exports, data/retest
+databases, SQLite sidecars, backups, .venv and the nested repository. Only Step 7
+source, tests and documentation are selected. No private contents accessed or
+logged; no GUI launched, packages installed or push performed.
+
+Blockers: none. Next: await further authorization.

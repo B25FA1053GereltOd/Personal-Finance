@@ -7,7 +7,9 @@ Step 3 supplies the verified Khan Bank MNT parser and synthetic workbook tests.
 Step 4 supplies preview/confirmation, conservative duplicate handling, and atomic
 imports with saved decisions. Step 5 adds scoped merchant rules, manual review,
 and explicit retroactive application. Step 6 adds the import and transaction
-browser UI. Full merchant review and editing screens remain for Step 7.
+browser UI. Step 7 adds grouped merchant review, effective-value editing with
+read-only bank references/history, and explicit rule management. See the
+[synthetic Step 7 manual checklist](docs/review_ui.md).
 Runtime is offline and requires no server, paid service, API key, or AI call.
 
 ## Setup in VS Code on Windows

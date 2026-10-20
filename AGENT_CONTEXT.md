@@ -230,6 +230,29 @@ widget tests are not visual verification. If Tk cannot initialize, mark GUI
 checks NOT RUN with the reason. Leave completed earlier services intact except
 the necessary repository filter/count extension.
 
+## Step 7 contract
+
+Step 7 is authorized: add only Review, effective transaction editing and rule
+management UI using existing classification/repository APIs. Keep the import and
+browser behavior from Steps 1-6. Group reliable unknown merchant keys with count,
+total, example and expandable rows; keep unreliable/protected items accessible.
+Selected-only category assignment is the default; optionally save a scoped rule
+for future imports. Preview affected rows and confirm before bulk writes. Cancel
+and skip change nothing; unknowns persist across restart.
+
+Edit effective date, signed amount, description, merchant display, category,
+kind and note; show source/history read-only. Validate ISO dates, exact money and
+compatible direction/kind/category. Corrections cannot rewrite matching keys,
+rules or source/deduplication identity. Protect manual edits unless explicitly
+unlocked. Rule editing/disabling changes future behavior only; existing rows
+require explicit preview and selected-only application. Use repository atomic
+composition for category-plus-rule confirmation and stale-row checks for edits.
+
+Use only synthetic fixtures/databases inside the workspace. Do not access private
+financial files, launch/control the GUI, use Computer Use, stage, commit or push.
+Run the full automated suite and distinguish headless checks from pending manual
+GUI verification. See docs/review_ui.md for commands and exact manual steps.
+
 ## Working rules
 
 - Work inside the open VS Code workspace (`C:\Personal Finance`). Edit files

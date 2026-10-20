@@ -7,6 +7,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from app.ui.presentation import browser_filters, format_mnt, issue_location, review_status
 from app.ui.worker import FinanceWorker
+from app.ui.review import ReviewViews, selected_items
 
 
 class PagedTable(ttk.Frame):
@@ -73,6 +74,7 @@ class DesktopApp:
         self.browser_page, self.browser_total = 0, 0
         self.active_filters = {}
         self.account_dialog = None
+        self.review_views = None
         self.file_path = tk.StringVar(window)
         self.account_text = tk.StringVar(window)
         self.account_confirmed = tk.BooleanVar(window, False)
@@ -113,6 +115,7 @@ class DesktopApp:
         self.tabs.add(self.transactions_tab, text="Transactions")
         self._build_import()
         self._build_browser()
+        self.review_views = ReviewViews(self, PagedTable)
         footer = ttk.Frame(root, padding=(16, 8))
         footer.grid(row=2, column=0, sticky="ew")
         footer.columnconfigure(0, weight=1)
@@ -226,7 +229,10 @@ class DesktopApp:
         apply.pack(side="left", padx=4)
         reset = ttk.Button(buttons, text="Reset", command=self._reset_filters)
         reset.pack(side="left", padx=4)
-        self.filter_widgets.extend((search, review, apply, reset))
+        edit = ttk.Button(buttons, text="Edit selected", command=self._edit_selected)
+        self.edit_button = edit
+        edit.pack(side="left", padx=4)
+        self.filter_widgets.extend((search, review, apply, reset, edit))
         for column in range(4):
             filters.columnconfigure(column, weight=1)
         browser_messages = ttk.Frame(tab)
@@ -238,6 +244,7 @@ class DesktopApp:
             ("amount", "Amount", 160), ("category", "Category", 260), ("review", "Review status", 150)],
             title="Transactions", size=100, height=14)
         self.transactions.grid(row=2, column=0, sticky="nsew")
+        self.transactions.tree.bind("<Double-1>", lambda _: self._edit_selected())
         self.transactions.footer.grid_remove()
         paging = ttk.Frame(tab)
         paging.grid(row=3, column=0, sticky="ew", pady=6)
@@ -257,7 +264,8 @@ class DesktopApp:
 
     def _sync_controls(self):
         idle = self.ready and not self.busy and not self.closing
-        selecting = idle and self.preview is None
+        reviewing = self.review_views is not None and (self.review_views.pending is not None or self.review_views.editor is not None)
+        selecting = idle and self.preview is None and not reviewing
         for widget in (self.account_box, self.add_account_button, self.choose_button, self.confirm_account):
             self._enabled(widget, selecting)
         self._enabled(self.preview_button, selecting and bool(self.accounts) and bool(self.file_path.get()) and self.account_confirmed.get())
@@ -271,19 +279,23 @@ class DesktopApp:
         self._enabled(self.review_button, idle)
         for widget in (*self.filter_widgets, self.category_box, self.direction_box, self.size_box):
             self._enabled(widget, idle)
+        if hasattr(self, "edit_button"):
+            self._enabled(self.edit_button, selecting)
         self._enabled(self.browser_previous, idle and self.browser_page > 0)
         self._enabled(self.browser_next, idle and (self.browser_page + 1) * int(self.page_size.get()) < self.browser_total)
         if self.busy:
             self.progress.start(15)
         else:
             self.progress.stop()
+        if self.review_views is not None:
+            self.review_views.sync()
 
     def _request(self, operation, **payload):
         if self.busy or not self.ready or self.closing:
             return False
         self.busy = True
         self.status.set({"preview": "Parsing and validating statement…", "commit": "Committing the complete import…",
-                         "cancel": "Canceling preview…", "account": "Saving account…", "browse": "Loading transactions…"}[operation])
+                         "cancel": "Canceling preview…", "account": "Saving account…", "browse": "Loading transactions…"}.get(operation, "Processing review action…"))
         self._sync_controls()
         try:
             self.worker.submit(operation, **payload)
@@ -438,14 +450,28 @@ class DesktopApp:
         self.category_text.set("All categories")
         self.direction_text.set("All directions")
         self.review_only.set(True)
-        self.review_hint.set("Transactions awaiting review. Category editing is not available in this view yet.")
-        self.tabs.select(self.transactions_tab)
-        self._apply_filters()
+        self.review_hint.set("Transactions awaiting review. Use Review to classify or edit selected rows.")
+        self.active_filters = browser_filters(review_only=True)
+        self.review_views.open()
+
+    def _edit_selected(self):
+        if self.busy:
+            return
+        if self.preview is not None or (self.review_views is not None and self.review_views.pending is not None):
+            self._error("Apply or cancel the current preview before editing.")
+            return
+        rows = selected_items(self.transactions)
+        if len(rows) != 1:
+            self._error("Select one transaction to edit.")
+            return
+        self._request("edit_get", transaction_id=rows[0]["id"])
 
     def _error(self, message):
         self.status.set(message)
         if not self.closing:
-            messagebox.showerror("Personal Finance", message, parent=self.account_dialog or self.window)
+            review = self.review_views
+            parent = (review.dialog or review.editor) if review is not None else None
+            messagebox.showerror("Personal Finance", message, parent=parent or self.account_dialog or self.window)
 
     def _callback_error(self, *_):
         self._error("An interface action failed. Refresh the view or close and reopen the app.")
@@ -483,7 +509,9 @@ class DesktopApp:
 
     def _handle(self, operation, payload):
         self.status.set("Ready")
-        if operation == "ready":
+        if operation.startswith(("review_", "rule_", "edit_")):
+            self.review_views.handle(operation, payload)
+        elif operation == "ready":
             self.ready = True
             self._set_accounts(payload["accounts"])
             self.categories = payload["categories"]

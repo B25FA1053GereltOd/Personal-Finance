@@ -26,7 +26,7 @@ from app.models import (
 SCHEMA_VERSION = 3
 _EDITABLE = frozenset({
     "description", "occurred_at", "amount_minor", "currency", "reference",
-    "balance_minor", "kind", "category_id", "merchant_key", "note", "manual_lock",
+    "balance_minor", "kind", "category_id", "merchant_key", "merchant_display", "note", "manual_lock",
 })
 _SOURCE_COLUMNS = (
     "id", "source_id", "import_id", "bank_datetime", "worksheet", "row_number",
@@ -240,6 +240,12 @@ class Repository:
 
     def close(self) -> None:
         self._connection.close()
+
+    @contextmanager
+    def atomic(self) -> Iterator[None]:
+        """Compose existing repository/service writes as one rollback-safe action."""
+        with self._write():
+            yield
 
     @contextmanager
     def _write(self) -> Iterator[None]:
@@ -539,6 +545,8 @@ class Repository:
             require_integer(values["balance_minor"], "Balance")
         if values["merchant_key"] is not None:
             require_text(values["merchant_key"], "Merchant key")
+        if values["merchant_display"] is not None:
+            require_text(values["merchant_display"], "Merchant display", allow_empty=True)
         require_text(values["note"], "Note", allow_empty=True)
         if type(values["manual_lock"]) is not bool:
             raise ValueError("Manual lock must be a boolean.")

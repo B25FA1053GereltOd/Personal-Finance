@@ -61,8 +61,9 @@ After success the UI switches to Transactions, clears browser filters, and reloa
 page one using the same worker-owned database. The import summary is visible in
 both tabs. It does not create or switch accounts/databases during refresh.
 
-**Review unknown merchants** switches to the unclassified transaction browser.
-It does not implement the Step 7 review/editor screen or change any categories.
+**Review unknown merchants** now opens the Step 7 Review view and also refreshes
+the unclassified browser. It does not change any categories until an explicit
+preview/confirmation. See [review and editing](review_ui.md).
 
 ## Browser
 
@@ -193,5 +194,6 @@ the checklist does not delete an existing database. After closing the app:
 $env:PERSONAL_FINANCE_DATA_DIR = $previousFinanceData
 ```
 
-Full merchant review, manual transaction editing and rule management UI are
-deferred to Step 7; no Step 7 screen is implemented here.
+Step 7 adds merchant review, transaction editing and rule management. Its separate
+[synthetic manual checklist](review_ui.md) records checks without changing the
+Step 6 acceptance history above.
