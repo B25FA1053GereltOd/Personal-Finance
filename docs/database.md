@@ -81,6 +81,9 @@ rows or statement contents.
 | `reporting_rows(date_from=None, date_to=None)` | Single-query snapshot of effective date, money, kind and category fields for ReportingService; no source descriptions. |
 | `backup_to(destination)` | SQLite backup API on this connection's thread; caller reserves the new destination. Rejects an active write transaction. |
 | `schema_definition()` | Schema signature used for conservative restore compatibility checks. |
+| `change_token()` | Connection writes plus SQLite data_version; detects stale restore previews. |
+| `restore_from(source, *, progress=None)` | SQLite backup into this connection atomically; RestoreService supplies a validated source and prior safety backup. Requires restart after success. |
+| `read_snapshot()` | Read-only transaction scope for consistent CSV count, metadata and paginated rows; rolled back on exit. |
 | `assign_category(transaction_id, category_id, *, reason)` | Explicit manual assignment; selects the category's kind and validates amount direction. `None` returns the item to unclassified review. |
 | `assign_categories(transaction_ids, category_id, *, reason)` | Atomic selected-only assignment; lock all selected rows or roll back all. |
 | `edit_transaction(transaction_id, *, reason, **changes)` | Atomically validate/edit effective fields and append an audit delta. Return the updated transaction. |
@@ -176,6 +179,8 @@ imports have no decision entries.
 ```
 
 Database tests create and clean up temporary databases within the project.
+Step 9 retains schema v3 and adds no tables. Restore is the explicit whole-database
+recovery operation; ordinary source immutability and audit rules remain unchanged.
 Fixtures contain only synthetic text, paths, identifiers, and amounts. They
 exercise rollback, source immutability, exact money, category/sign compatibility,
 foreign keys, reopening, query pagination, rule CRUD, and audit persistence.

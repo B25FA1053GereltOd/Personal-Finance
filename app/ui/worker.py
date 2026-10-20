@@ -11,6 +11,8 @@ from app.classification import ClassificationBlocked
 from app.review_service import ReviewBlocked, ReviewService
 from app.reporting import ReportingError, ReportingService
 from app.backup import BackupError, create_backup
+from app.restore_service import RestoreService
+from app.export_service import ExportError, export_csv
 
 
 @dataclass(frozen=True)
@@ -56,6 +58,7 @@ class FinanceWorker:
             service = self._service_factory(repository)
             review = ReviewService(repository)
             reporting = ReportingService(repository)
+            restore = RestoreService(repository, self.database)
             self.events.put(Event("ready", {"accounts": repository.list_accounts(),
                                            "categories": repository.list_categories()}))
             while True:
@@ -63,6 +66,12 @@ class FinanceWorker:
                 if operation == "stop":
                     break
                 try:
+                    if restore.restart_required:
+                        raise BackupError("Restore completed. Close and reopen the app before continuing.")
+                    if restore.pending is not None and operation not in ("restore_confirm", "restore_cancel"):
+                        raise BackupError("Confirm or cancel the restore preview first.")
+                    if operation.startswith("restore_") and (preview is not None or review.pending is not None):
+                        raise BackupError("Cancel the current import or review preview before restoring.")
                     if review.pending is not None and operation in ("account", "preview", "commit"):
                         raise ReviewBlocked("Apply or cancel the review preview before importing.")
                     if operation.startswith(("review_", "rule_", "edit_")):
@@ -117,6 +126,15 @@ class FinanceWorker:
                         result = {"result": committed, "unclassified": unclassified}
                     elif operation == "backup":
                         result = create_backup(repository, payload["folder"])
+                    elif operation == "restore_preview":
+                        result = restore.preview(payload["path"])
+                    elif operation == "restore_confirm":
+                        result = restore.confirm(**payload)
+                    elif operation == "restore_cancel":
+                        restore.cancel()
+                        result = None
+                    elif operation == "export_csv":
+                        result = export_csv(repository, payload["path"], payload.get("filters", {}))
                     elif operation == "dashboard":
                         result = reporting.summarize(**payload)
                     elif operation == "browse":
@@ -132,7 +150,9 @@ class FinanceWorker:
                     else:
                         raise ImportBlocked("Unsupported action.")
                     self.events.put(Event(operation, result))
-                except (ImportBlocked, ReviewBlocked, ClassificationBlocked, ReportingError, BackupError) as error:
+                except (ImportBlocked, ReviewBlocked, ClassificationBlocked, ReportingError, BackupError, ExportError) as error:
+                    if operation.startswith("restore_"):
+                        restore.cancel()
                     self.events.put(Event(operation, error=str(error)))
                 except Exception:
                     # Exception strings may contain identifiers, SQL or source text.
@@ -143,7 +163,12 @@ class FinanceWorker:
                         "commit": "Import could not be completed. Cancel and create a fresh preview before retrying.",
                         "dashboard": "Dashboard could not be loaded. No data was changed. Try Refresh; if it persists, close and reopen the app.",
                         "backup": "Backup could not be completed. Check folder permissions, disk space and drive availability, then retry.",
+                        "export_csv": "Export failed. Check filters, destination permissions and disk space.",
+                        "restore_preview": "Backup could not be validated. Choose another backup.",
+                        "restore_confirm": "Restore failed. Close and reopen the app; retain the safety backup.",
                     }
+                    if operation.startswith("restore_"):
+                        restore.cancel()
                     self.events.put(Event(operation, error=messages.get(operation, "Action failed. Refresh or cancel the preview before trying again; check category and direction compatibility.")))
             if preview is not None:
                 service.cancel(preview)

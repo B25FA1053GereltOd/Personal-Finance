@@ -1,6 +1,6 @@
 """Small display and input helpers, independent of Tk, SQL and statement parsing."""
 
-from app.models import minor_to_money, validate_iso
+from app.models import minor_to_money, validate_iso, review_status
 
 
 def format_mnt(minor: int | None) -> str:
@@ -25,14 +25,6 @@ def browser_filters(date_from="", date_to="", category_id=None, direction=None,
     if currency is not None:
         result["currency"] = currency
     return result
-
-
-def review_status(row: dict) -> str:
-    if row["kind"] == "unclassified" or (row["kind"] in ("income", "expense") and row["category_id"] is None):
-        return "Needs review"
-    if row["kind"] in ("transfer", "excluded"):
-        return row["kind"].capitalize()
-    return "Manual / protected" if row["manual_lock"] else "Classified"
 
 
 def issue_location(issue) -> tuple[str, str, str]:

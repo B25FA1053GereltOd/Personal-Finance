@@ -1,37 +1,35 @@
 # Status
 
-Steps 1-7 complete. Step 8 Dashboard and backup/launcher implemented.
+Steps 1-8 preserved. Step 9 acceptance, confirmed restore, CSV export and local
+usability implemented; schema v3 unchanged.
 
-Dashboard provides currency totals, classified income/expenses/net,
-unclassified counts, category percentages and monthly tables.
-Inclusive calendar presets/custom ISO dates and category/month drill-down retain
-currency/date filters. Import, edit, classification and rule application refresh
-through the existing worker queue. Transfers/excluded/unknown amounts are omitted;
-net is not a bank balance. Source identities and schema v3 are unchanged.
+Restore validates/stages a snapshot, previews counts, requires explicit confirmation
+and a validated safety backup, then uses an atomic SQLite destination transaction.
+Source backups are retained; success requires restart. CSV exports all applied
+filters/pages with effective values, UTF-8 BOM, exact decimal text and formula-text
+protection; empty results create no file. Account filter, Help/About, app/schema
+versions and safe Open data folder added. Existing start.bat retained.
 
-Backup uses SQLite's backup API, exclusive timestamped destinations and integrity,
-foreign-key/schema validation before success. Restore preparation validates a
-separate file without overwriting data. start.bat uses .venv with visible errors.
+Public APIs: RestoreService.preview/confirm/cancel; export_csv; open_data_folder;
+Repository.change_token/restore_from/read_snapshot; shared models.review_status.
+Worker commands: restore_preview/restore_confirm/restore_cancel/export_csv.
 
-Public APIs: ReportingService.summarize, date_range, category_filters,
-month_filters; Repository.reporting_rows, backup_to, schema_definition and currency
-query/count filters; backup.create_backup, validate_backup, prepare_restore.
-Worker commands: dashboard and backup. Manual instructions: docs/dashboard.md
-and docs/backup_restore.md; tested versions in README.md.
+Checks (2026-10-21): 233 discovered, 228 passed, 0 failed, 5 GUI tests explicitly
+skipped. Full offline synthetic import/classify/repeat/edit/reopen/backup/temporary
+restore scenario passed. Restore interruption, safety failure, WAL, CSV filters,
+precision and controller guards passed. Syntax: 42 Python files. Whitespace and
+24 ignore probes passed. Only Step 9 source/tests/docs selected for the local commit.
+After README TEMP/TMP setup:
+`$env:PERSONAL_FINANCE_SKIP_GUI_TESTS='1'`;
+`.\.venv\Scripts\python.exe -m unittest discover -s tests -v`.
+Launch: `& 'C:\Personal Finance\start.bat'`.
+Evidence matrix: docs/acceptance.md. User guide/checklist: docs/user_guide.md.
 
-Checks (2026-10-20): full suite 207 discovered, 202 passed, 0 failed, 5 GUI tests
-explicitly skipped. Synthetic tests cover calculations, dates, currencies,
-drill-down, refresh/restart, error recovery, independent backups, WAL, collisions,
-rollback-safe failures and CLI temporary restore. Syntax/whitespace and ignore
-checks passed. Only Step 8 source, tests, documentation and launcher are selected
-for the local commit. No private financial files accessed or staged;
-no agent GUI launch, dependency install, nested-repository change or push.
+User smoke PASS (2026-10-21): launcher, CSV export, backup, restore validation/Cancel
+preserving data, Help/About version/data directory and Open data folder.
+Prior Dashboard smoke passed. Confirmed restore/restart, F5 and extended GUI checks
+remain optional/pending NOT RUN, not failures. Real-statement recheck NOT RUN by
+privacy instruction.
 
-User-confirmed smoke PASS (2026-10-20): start.bat, isolated synthetic directory,
-Dashboard opening, MNT/USD all-time totals/counts and income/expense category
-totals/percentages.
-
-Optional/pending, NOT RUN (not failures): monthly tables, presets/custom date
-validation, drill-down, mutation refresh, restart persistence, backup UI and manual
-restore. The user stopped the extended checklist. Blockers: none for this commit.
-Next: await direction; do not resume the checklist.
+No automated blockers. No private data accessed, agent GUI launched, packages
+installed, nested repository modified or push. Next: await user direction.

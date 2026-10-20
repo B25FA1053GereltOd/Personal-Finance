@@ -10,6 +10,8 @@ from app.ui.worker import FinanceWorker
 from app.ui.review import ReviewViews, selected_items
 from app.ui.dashboard import DashboardView
 from app.reporting import format_money
+from app.db import SCHEMA_VERSION
+from app.local_actions import APP_VERSION, open_data_folder
 
 
 class PagedTable(ttk.Frame):
@@ -75,6 +77,7 @@ class DesktopApp:
         self.accounts, self.categories = [], []
         self.browser_page, self.browser_total = 0, 0
         self.active_filters = {}
+        self.data_dir = Path(data_dir).resolve()
         self.account_dialog = None
         self.review_views = None
         self.dashboard, self.dashboard_dirty = None, True
@@ -89,6 +92,7 @@ class DesktopApp:
         self.category_text = tk.StringVar(window, "All categories")
         self.direction_text = tk.StringVar(window, "All directions")
         self.currency_text = tk.StringVar(window, "All currencies")
+        self.browser_account_text = tk.StringVar(window, "All accounts")
         self.review_only = tk.BooleanVar(window, False)
         self.page_size = tk.StringVar(window, "50")
         self.browser_caption = tk.StringVar(window, "No transactions loaded")
@@ -113,6 +117,12 @@ class DesktopApp:
         ttk.Label(top, text="Local · Offline").pack(side="right")
         self.backup_button = ttk.Button(top, text="Backup…", command=self._backup)
         self.backup_button.pack(side="right", padx=12)
+        self.local_buttons = []
+        for label, callback in (("Restore…", self._restore), ("Export CSV…", self._export_csv),
+                                ("Help / About", self._about), ("Open data folder", self._open_data_folder)):
+            button = ttk.Button(top, text=label, command=callback)
+            button.pack(side="right", padx=3)
+            self.local_buttons.append(button)
         self.tabs = ttk.Notebook(root)
         self.tabs.grid(row=1, column=0, sticky="nsew", padx=12)
         self.import_tab = ttk.Frame(self.tabs, padding=10)
@@ -129,7 +139,7 @@ class DesktopApp:
         ttk.Label(footer, textvariable=self.status, wraplength=850).grid(row=0, column=0, sticky="w")
         self.progress = ttk.Progressbar(footer, mode="indeterminate", length=140)
         self.progress.grid(row=0, column=1, sticky="e")
-        ttk.Label(footer, text=f"Data folder: {data_dir}", wraplength=1000).grid(row=1, column=0, columnspan=2, sticky="w", pady=(3, 0))
+        ttk.Label(footer, text=f"App {APP_VERSION} · Database v{SCHEMA_VERSION} · Data folder: {data_dir}", wraplength=1000).grid(row=1, column=0, columnspan=2, sticky="w", pady=(3, 0))
 
     def _build_import(self):
         tab = self.import_tab
@@ -244,6 +254,11 @@ class DesktopApp:
         self.currency_box = ttk.Combobox(filters, textvariable=self.currency_text, values=("All currencies",), state="readonly")
         self.currency_box.grid(row=5, column=0, sticky="ew", padx=4)
         self.filter_widgets.append(self.currency_box)
+        ttk.Label(filters, text="Account").grid(row=4, column=1, sticky="w", padx=4)
+        self.browser_account_box = ttk.Combobox(filters, textvariable=self.browser_account_text,
+                                                values=("All accounts",), state="readonly")
+        self.browser_account_box.grid(row=5, column=1, columnspan=2, sticky="ew", padx=4)
+        self.filter_widgets.append(self.browser_account_box)
         for column in range(4):
             filters.columnconfigure(column, weight=1)
         browser_messages = ttk.Frame(tab)
@@ -294,6 +309,8 @@ class DesktopApp:
             self._enabled(self.edit_button, selecting)
         if hasattr(self, "backup_button"):
             self._enabled(self.backup_button, selecting)
+        for button in getattr(self, "local_buttons", ()):
+            self._enabled(button, selecting)
         self._enabled(self.browser_previous, idle and self.browser_page > 0)
         self._enabled(self.browser_next, idle and (self.browser_page + 1) * int(self.page_size.get()) < self.browser_total)
         if self.busy:
@@ -342,10 +359,51 @@ class DesktopApp:
         if folder:
             self._request("backup", folder=folder)
 
+    def _restore(self):
+        if self.busy or not self.ready:
+            return
+        path = filedialog.askopenfilename(parent=self.window, title="Choose a Personal Finance backup",
+                                          filetypes=[("SQLite backup", "*.sqlite3 *.sqlite *.db")])
+        if path:
+            self._request("restore_preview", path=path)
+
+    def _export_csv(self):
+        if self.busy or not self.ready:
+            return
+        if not self.browser_total:
+            self.status.set("No transactions match the applied filters. No export file was created.")
+            return
+        path = filedialog.asksaveasfilename(parent=self.window, title="Export all transactions matching applied filters",
+                                          defaultextension=".csv", filetypes=[("CSV", "*.csv")],
+                                          initialfile="transactions.csv")
+        if path:
+            self._request("export_csv", path=path, filters=dict(self.active_filters))
+
+    def _open_data_folder(self):
+        try:
+            open_data_folder(self.data_dir)
+        except ValueError as error:
+            self._error(str(error))
+
+    def _about(self):
+        messagebox.showinfo("Personal Finance - Help / About",
+                            f"App {APP_VERSION} | Database schema {SCHEMA_VERSION}\nData folder: {self.data_dir}\n\n"
+                            "Offline; no account, cloud or API key.\n"
+                            "Import: select account/file, preview, then confirm.\n"
+                            "Review: selected-only categories by default; rules are optional.\n"
+                            "Transactions: Apply filters before Export CSV (all matching pages).\n"
+                            "Backup saves a validated snapshot. Restore requires confirmation,\n"
+                            "creates a safety backup, and requires close/reopen afterward.\n"
+                            "Close other app instances before restore.\n"
+                            "Full instructions: docs/user_guide.md in the project folder.",
+                            parent=self.window)
+
     def _set_accounts(self, accounts, selected=None):
         self.accounts = accounts
         if hasattr(self, "currency_box"):
             self.currency_box.configure(values=["All currencies"] + sorted({a["currency"] for a in accounts}))
+        if hasattr(self, "browser_account_box"):
+            self.browser_account_box.configure(values=["All accounts"] + [f'{a["name"]} ({a["currency"]}) #{a["id"]}' for a in accounts])
         self.account_box.configure(values=[f'{a["name"]} — {a["identifier"]} ({a["bank"]}, {a["currency"]})' for a in accounts])
         if accounts:
             index = next((i for i, a in enumerate(accounts) if a["id"] == selected), 0)
@@ -449,6 +507,10 @@ class DesktopApp:
                 None if self.direction_text.get() == "All directions" else self.direction_text.get().lower(),
                 self.review_only.get(), self.search.get(),
                 currency=None if self.currency_text.get() == "All currencies" else self.currency_text.get())
+            if hasattr(self, "browser_account_box"):
+                account_index = self.browser_account_box.current()
+                if account_index > 0:
+                    self.active_filters["account_id"] = self.accounts[account_index - 1]["id"]
         except ValueError as error:
             self._error(str(error))
             return
@@ -461,6 +523,9 @@ class DesktopApp:
         self.category_text.set("All categories")
         self.direction_text.set("All directions")
         self.currency_text.set("All currencies")
+        self.browser_account_text.set("All accounts")
+        if hasattr(self, "browser_account_box"):
+            self.browser_account_box.current(0)
         self.review_only.set(False)
         self.review_hint.set("")
         self._apply_filters()
@@ -469,6 +534,9 @@ class DesktopApp:
         self._request("browse", filters=dict(self.active_filters), page=max(0, page), page_size=int(self.page_size.get()))
 
     def _dashboard_drill(self, filters):
+        self.browser_account_text.set("All accounts")
+        if hasattr(self, "browser_account_box"):
+            self.browser_account_box.current(0)
         self.date_from.set(filters.get("date_from") or "")
         self.date_to.set(filters.get("date_to") or "")
         self.currency_text.set(filters["currency"])
@@ -487,6 +555,9 @@ class DesktopApp:
     def _review_unknown(self):
         if self.busy:
             return
+        self.browser_account_text.set("All accounts")
+        if hasattr(self, "browser_account_box"):
+            self.browser_account_box.current(0)
         self.date_from.set("")
         self.date_to.set("")
         self.search.set("")
@@ -561,7 +632,30 @@ class DesktopApp:
             self.dashboard_dirty = True
             if self.dashboard is not None:
                 self.dashboard.clear("Transactions changed; refreshing Dashboard…")
-        if operation == "backup":
+        if operation == "restore_preview":
+            confirmed = messagebox.askyesno(
+                "Confirm restore",
+                f"Validated database v{payload.schema}: {payload.transactions} transactions, "
+                f"{payload.accounts} accounts, {payload.rules} rules.\n\n"
+                "Replace the current database with this snapshot?\n"
+                "A validated safety backup will be saved in the active data folder's backups subfolder first.\n"
+                "Close other app instances. After success, close and reopen this app.\n"
+                "The selected backup is kept. Cancel leaves current data unchanged.",
+                parent=self.window, default="no")
+            self._request("restore_confirm", token=payload.token, confirmed=True) if confirmed else self._request("restore_cancel")
+        elif operation == "restore_cancel":
+            self.status.set("Restore canceled. The current database is unchanged.")
+        elif operation == "restore_confirm":
+            self.ready, self.dashboard_dirty = False, False
+            self.transactions.set_items(())
+            if self.dashboard is not None:
+                self.dashboard.clear("Restore complete. Close and reopen the app.")
+            self.status.set(f"Restore completed. Close and reopen the app. Safety backup: {payload.safety_backup}")
+            messagebox.showinfo("Restore complete", self.status.get(), parent=self.window)
+        elif operation == "export_csv":
+            self.status.set(f"Exported {payload.count} transactions to: {payload.path}" if payload.count else
+                            "No transactions match the applied filters. No export file was created.")
+        elif operation == "backup":
             self.status.set(f"Backup completed and validated: {payload}")
         elif operation == "dashboard":
             self.dashboard.display(payload)

@@ -253,11 +253,45 @@ class Repository:
         """Snapshot via SQLite on this connection's owning thread, never raw copy."""
         if self._connection.in_transaction:
             raise ValueError("Finish the current write before taking a backup.")
+        def check(status, remaining, total):
+            if status in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+                raise ValueError("Close other app instances before taking a backup.")
         with closing(sqlite3.connect(destination)) as target:
-            self._connection.backup(target)
+            self._connection.backup(target, pages=32, progress=check)
 
     def schema_definition(self):
         return schema_definition(self._connection)
+
+    def change_token(self):
+        """Detect writes on this connection or another connection since preview."""
+        return self._connection.total_changes, self._connection.execute("PRAGMA data_version").fetchone()[0]
+
+    def restore_from(self, source, *, progress=None):
+        """Atomic SQLite backup into this connection; caller validates and backs up.
+
+        SQLite holds the destination write transaction until all pages complete.
+        An exception before completion finalizes the backup and rolls it back.
+        No filesystem replacement or removal of journal/WAL files is involved.
+        """
+        if self._connection.in_transaction:
+            raise ValueError("Finish the current write before restoring.")
+        def check(status, remaining, total):
+            if status in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
+                raise ValueError("Close other app instances before restoring.")
+            if status != sqlite3.SQLITE_DONE and progress is not None:
+                progress(status, remaining, total)
+        source.backup(self._connection, pages=32, progress=check)
+
+    @contextmanager
+    def read_snapshot(self):
+        """Consistent paginated export without acquiring a write transaction."""
+        if self._connection.in_transaction:
+            raise ValueError("Finish the current operation first.")
+        self._connection.execute("BEGIN")
+        try:
+            yield
+        finally:
+            self._connection.execute("ROLLBACK")
 
     @contextmanager
     def atomic(self) -> Iterator[None]:

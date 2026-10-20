@@ -15,6 +15,10 @@ manual restore preparation, and `start.bat`. See the exact
 [synthetic Dashboard checklist](docs/dashboard.md) and
 [backup/restore instructions](docs/backup_restore.md).
 Runtime is offline and requires no server, paid service, API key, or AI call.
+Step 9 adds confirmed restore with a safety backup, filtered CSV export, an account
+filter, Help/About and Open data folder. Start with the
+[user guide](docs/user_guide.md). Requirement-by-requirement verification and
+limitations are recorded in [acceptance.md](docs/acceptance.md).
 
 ## Setup in VS Code on Windows
 
@@ -67,7 +71,7 @@ New-Item -ItemType Directory -Path $env:TEMP -Force | Out-Null
 ```
 
 These temporary-directory variables keep test files inside the project for the
-current terminal session. No additional packages are needed for Steps 3–8.
+current terminal session. No additional packages are needed for Steps 3–9.
 For headless verification without launching Tk windows, set
 `$env:PERSONAL_FINANCE_SKIP_GUI_TESTS = '1'` before running unittest. Those GUI
 tests will be explicitly skipped, not reported as visually verified.
@@ -137,7 +141,7 @@ tracked by Git. Never commit real financial data, log statements, modify
 original bank exports, or use them in tests.
 
 Read `AGENT_CONTEXT.md` and `STATUS.md` before any later implementation step;
-agents are not assumed to load these files automatically. Steps 1–8 are
+agents are not assumed to load these files automatically. Steps 1–9 are
 implemented; verification results
 and remaining GUI checks are recorded in `STATUS.md`.
 Later steps require a new instruction. Ask before installing any
@@ -152,7 +156,7 @@ Keep/Skip for every ambiguous row. **Cancel preview** writes nothing; **Commit
 import** applies the existing atomic import/classification services. Account
 creation is a separate explicit action that persists even if a preview is canceled.
 
-The **Transactions** tab provides inclusive date bounds, category, currency, debit/credit,
+The **Transactions** tab provides inclusive date bounds, category, account, currency, debit/credit,
 unclassified and literal Unicode description search filters. Click **Apply /
 refresh** after changing filters. Pages contain 10, 25, 50 or 100 rows. **Review
 unknown merchants** opens grouped review. Assign selected rows only by default,
@@ -184,11 +188,54 @@ Extended GUI checks remain optional/pending (NOT RUN), not failures; see the che
 
 Use **Backup** to select a local folder. Success means SQLite's backup API and
 integrity/schema validation completed; existing snapshots are never overwritten.
-For restore, close the app, validate a separate copy, preserve the current database,
-then prepare the validated backup in the configured location. Follow the complete
+For GUI restore, close other app instances, choose a compatible backup and confirm
+the summary. A validated safety backup is required before SQLite restores the
+snapshot atomically. After success, close/reopen this app as instructed. The selected
+backup remains untouched. For manual restore, close the app, validate a separate
+copy and preserve the current database first. Follow the complete
 [manual restore and tested temporary exercise](docs/backup_restore.md); never
 copy a live database file directly or delete statement files.
 
 Tested existing environment on 2026-10-20: Python 3.15.0, SQLite 3.53.4,
 openpyxl 3.1.5 and et_xmlfile 2.0.0. Imported Tcl/Tk constants: 9.0/9.0;
 Step 8 GUI smoke testing was performed by the user only. No dependency changes or installs.
+
+## Export and final verification
+
+In Transactions, choose filters and click **Apply / refresh** before **Export CSV**.
+Export uses all matching pages and effective edited values, including account,
+bank, category, currency, note and review/protection state. It writes UTF-8 with
+BOM, quoted fields and exact decimal text. No matching rows means no file; existing
+files are never overwritten. Spreadsheet formula-like text is prefixed with an
+apostrophe for safety. To preserve identifiers/large decimals in Excel, import
+through **Data > From Text/CSV** and select Text for those columns; automatic Excel
+type conversion can discard leading zeros or precision even though the CSV is exact.
+Keep exports private; CSV files are Git-ignored.
+
+**Help / About** explains the workflow and shows app/database versions and the data
+directory. **Open data folder** uses the Windows file-opening API without shell
+commands. `start.bat` uses its own project location even when the calling directory
+differs; no administrator rights, install step or internet is needed for normal use.
+
+Run the final automated checks in workspace PowerShell:
+
+```powershell
+Set-Location 'C:\Personal Finance'
+$env:TEMP = Join-Path (Get-Location).Path 'data\test-temp'
+$env:TMP = $env:TEMP
+New-Item -ItemType Directory -Path $env:TEMP -Force | Out-Null
+$env:PERSONAL_FINANCE_SKIP_GUI_TESTS = '1'
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe -c "import ast; from pathlib import Path; paths=list(Path('app').rglob('*.py'))+list(Path('tests').rglob('*.py')); [ast.parse(p.read_text(encoding='utf-8-sig'), filename=str(p)) for p in paths]; print('Syntax PASS')"
+git -c core.safecrlf=false diff --check
+```
+
+Step 9 automated result: **233 discovered, 228 passed, 0 failed, 5 GUI tests
+explicitly skipped**. The agent used a workspace PowerShell process, not the visible
+VS Code integrated terminal. Run/debug configuration was verified statically;
+F5/Ctrl+F5 and File Explorer launch were not rerun by the agent. No real statement
+was accessed. User-confirmed synthetic smoke PASS on 2026-10-21: start.bat, CSV
+export, backup, restore preview validation/Cancel preserving the database,
+Help/About version/data directory and Open data folder. Confirmed restore/restart
+and extended GUI checks remain optional/pending, not failed; see the short
+[isolated synthetic checklist](docs/user_guide.md#synthetic-manual-acceptance).

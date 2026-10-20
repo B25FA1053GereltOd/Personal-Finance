@@ -15,6 +15,19 @@ class BackupError(ValueError):
     """Safe diagnostic; raw OS/SQLite errors may contain private paths/content."""
 
 
+def validate_connection(connection):
+    """Validate within the caller's read snapshot; never modify the input."""
+    if connection.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
+        raise BackupError("Backup integrity check failed. Choose another backup; do not restore this file.")
+    if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+        raise BackupError("Backup contains broken references. Choose another backup.")
+    if connection.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
+        raise BackupError("Backup schema version is incompatible with this app. Use a matching app version.")
+    with Repository(":memory:") as expected:
+        if schema_definition(connection) != expected.schema_definition():
+            raise BackupError("Backup schema does not match this app. Do not restore this file.")
+
+
 def validate_backup(path):
     """Read-only integrity, foreign-key and exact supported-schema checks."""
     try:
@@ -22,15 +35,7 @@ def validate_backup(path):
         with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as connection:
             connection.execute("PRAGMA query_only = ON")
             connection.execute("BEGIN")
-            if connection.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
-                raise BackupError("Backup integrity check failed. Choose another backup; do not restore this file.")
-            if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
-                raise BackupError("Backup contains broken references. Choose another backup.")
-            if connection.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
-                raise BackupError("Backup schema version is incompatible with this app. Use a matching app version.")
-            with Repository(":memory:") as expected:
-                if schema_definition(connection) != expected.schema_definition():
-                    raise BackupError("Backup schema does not match this app. Do not restore this file.")
+            validate_connection(connection)
         return SCHEMA_VERSION
     except BackupError:
         raise
@@ -62,7 +67,7 @@ def create_backup(repository, folder):
     except FileExistsError:
         raise BackupError("A backup with this name already exists. Retry to create a new name; nothing was overwritten.") from None
     except (OSError, sqlite3.Error, ValueError):
-        raise BackupError("Backup failed. Check folder permissions, free disk space and drive availability, then retry.") from None
+        raise BackupError("Backup failed. Close other app instances; check folder permissions, free disk space and drive availability, then retry.") from None
     finally:
         # Only our newly reserved incomplete artifact can be removed on failure.
         # No existing database, backup, or statement is ever deleted.

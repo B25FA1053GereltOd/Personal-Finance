@@ -1,5 +1,16 @@
 # Import and transaction browser (Step 6)
 
+Step 9 adds an account filter and toolbar Restore, Export CSV, Help/About and Open
+data folder actions. Export uses `active_filters`, meaning the last applied filters,
+not unsubmitted entry text; all matching pages are included. Account filtering is
+cleared by Dashboard drill-down/reset so hidden account choices cannot omit rows.
+Restore preview/confirmation and CSV writing stay on FinanceWorker. Only the Tk
+thread invokes dialogs. Restore success clears visible transaction/report data,
+disables further actions and requires close/reopen. Errors preserve a usable UI;
+worker-side guards also reject work while restore confirmation is pending.
+App/schema version and the active folder are displayed in the footer.
+See [user_guide.md](user_guide.md) for a short synthetic manual checklist.
+
 Step 8 retains these workflows and adds a currency filter, currency-aware amount
 display, a Dashboard tab and toolbar Backup action. See [dashboard.md](dashboard.md)
 and [backup_restore.md](backup_restore.md) for exact synthetic manual checks.

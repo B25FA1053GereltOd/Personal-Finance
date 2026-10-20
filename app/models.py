@@ -208,3 +208,12 @@ class RuleSelection:
         require_text(self.revision, "Transaction revision")
         if not isinstance(self.merchant, MerchantMatch):
             raise ValueError("A verified merchant match is required.")
+
+
+def review_status(row: dict) -> str:
+    """Shared review state for tables and exports; independent of Tk."""
+    if row["kind"] == "unclassified" or (row["kind"] in ("income", "expense") and row["category_id"] is None):
+        return "Needs review"
+    if row["kind"] in ("transfer", "excluded"):
+        return row["kind"].capitalize()
+    return "Manual / protected" if row["manual_lock"] else "Classified"

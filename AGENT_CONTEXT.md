@@ -286,6 +286,35 @@ passed and stopped the remaining extended checklist. Record unrun checks as
 optional/pending, not failures. The user subsequently authorized one local
 Prompt 8 commit after rerunning tests and privacy checks; no push is authorized.
 
+## Step 9 contract
+
+Step 9 includes final acceptance plus the user's explicit restore/CSV/usability
+requirements. Preserve existing services and schema v3. Backup must use SQLite,
+validate before success and never bundle statement files. Restore stages/validates
+a compatible snapshot, shows counts and requires explicit confirmation, creates
+a validated safety backup first, and uses an atomic SQLite destination transaction.
+Keep the selected backup. Require restart after success; reject conflicting work.
+Close other app instances before restoring; never delete user data or sidecars.
+
+Export all rows matching the applied Transactions filters, including account and
+currency, using a consistent read snapshot. UTF-8 BOM CSV contains effective values,
+exact decimal text and review/protection state. No rows means no file. Refuse
+overwrites; neutralize formula-like text without converting numeric money to float.
+Provide Help/About, versions, active data path and safe os.startfile directory open.
+Keep database operations on the worker thread. Retain the existing Windows launcher.
+
+Use synthetic data only; the latest constraint prohibits real statement access,
+overriding the earlier request to inspect a statement if available. No GUI launch,
+Computer Use, package installation, nested-repository modification, staging,
+commit or push. Run full tests, syntax/whitespace and ignore checks. Record actual
+GUI history separately from automation and NOT RUN checks in docs/acceptance.md.
+Use docs/user_guide.md for the short synthetic manual checklist.
+
+On 2026-10-21 the user confirmed Step 9 synthetic smoke tests: launcher, CSV
+export, backup, restore validation/Cancel, Help/About and Open data folder.
+Confirmed restore/restart was not reported as manually tested. The user authorized
+one local Prompt 9 commit after rerunning tests and ignore checks; no push.
+
 ## Working rules
 
 - Work inside the open VS Code workspace (`C:\Personal Finance`). Edit files

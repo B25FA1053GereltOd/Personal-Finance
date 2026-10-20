@@ -1,4 +1,43 @@
-# Local backup and manual restore
+# Local backup and restore
+
+## Restore from the app (Step 9)
+
+Close other app instances first. Click **Restore**, select a separate Personal
+Finance SQLite backup and inspect the confirmation: schema version, transaction,
+account and rule counts. No financial descriptions or account identifiers appear
+in this summary. **No** is the default. Cancel leaves the live database unchanged.
+
+The worker reads the selected backup through SQLite in read-only mode and validates
+integrity, foreign keys and exact schema compatibility. Missing, corrupted,
+unrelated and unsupported/newer schemas are rejected. It snapshots the selected
+database into a new `backups/restore-stage-<unique-id>.sqlite3` inside the active
+data directory. The staged copy is validated again; its digest and the current
+database revision are checked on confirmation. Changed data requires a new preview.
+The originally selected backup is never modified or deleted.
+
+On **Yes**, a timestamped, validated safety backup of the current database is made
+in that same `backups` folder. If validation or safety backup fails, restore does
+not begin. SQLite's backup API copies the staged snapshot into the live connection
+in a destination transaction; a failed/interrupted page copy rolls back. There is
+no raw file replacement, deletion of WAL/journal sidecars or manual rename by the
+GUI. Tests cover exceptions during copying, abrupt process exit with SQLite recovery,
+WAL mode, stale previews and safety-backup failure. Power loss and faulty hardware
+are not simulated; retain backups on a reliable local drive.
+
+After success the app displays the safety backup path and disables further work.
+**Close and reopen the app with the same data setting.** The worker also rejects
+further operations until restart. Previews cannot overlap with import/review work.
+Staged snapshots are retained after cancellation; they are private database files,
+Git-ignored alongside backups. No bank statement Excel files are bundled in a backup.
+This is a single-user operation; close other app instances before starting.
+
+`RestoreService(repository, database).preview(path)` returns a summary/token.
+`confirm(token, confirmed=True)` requires that exact pending preview, and returns
+the safety backup path plus `restart_required=True`. `cancel()` clears the pending
+decision without altering the live database.
+
+The Step 8 manual procedure below remains available. The new GUI acceptance steps
+are in [user_guide.md](user_guide.md#synthetic-manual-acceptance).
 
 The toolbar Backup action selects an existing local folder. The database-owning
 worker calls SQLite's backup API, not a file copy of the live database. A UTC
@@ -54,9 +93,10 @@ Expected: each CLI operation reports PASS. The independently restored app has th
 same 16 synthetic rows, two rules, protected edit and totals from the checklist.
 The original synthetic database, selected backup and validation copy still exist.
 Nothing is replaced or deleted. The user confirmed the normal synthetic launcher
-smoke check passed on 2026-10-20. Manual backup creation, restore and restored-app
-verification remain optional/pending (NOT RUN), not failures. Automated backup
-and temporary-restore checks passed; the agent did not launch a GUI.
+smoke check passed on 2026-10-20. On 2026-10-21 the user confirmed backup creation,
+restore preview validation and Cancel preserving data. Confirmed restore and
+restored-app verification remain optional/pending (NOT RUN), not failures.
+Automated backup/temporary-restore checks passed; the agent did not launch a GUI.
 
 ## Restore into the configured data location
 
