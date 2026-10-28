@@ -27,6 +27,9 @@ required. Unrelated nonmatching worksheets are not selected.
   opening balance, signed credit and signed debit in integer hundredths.
   The source preserves original description/date text, worksheet, one-based
   row number, normalized ISO datetime, signed amount, MNT, and closing balance.
+  `ImportRow.pos_id` is optional and must be populated only from a verified
+  source field/pattern; the currently supported Khan profile provides no
+  reliable POS ID, so its value remains `None`.
   `reference` remains None because this profile has no bank reference field;
   the counterparty account is not substituted for a reference. `dedup_key`
   remains None in parser results; the import service supplies versioned identity
@@ -48,7 +51,7 @@ when structural/row errors prevent a complete comparison. Warnings currently
 identify exact repeated headers that were explicitly skipped.
 
 Descriptions, raw bank date/time text, account/branch text, and source order are
-preserved. No POS/merchant splitting, date sorting, account-number coercion,
+preserved. No guessed POS ID, merchant splitting, date sorting, account-number coercion,
 automatic income/expense classification, or Other category assignment occurs.
 Blank rows are skipped only if both the original and cached cells are empty.
 An unfamiliar nonblank row produces an error. Content after totals, missing

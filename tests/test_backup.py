@@ -23,7 +23,7 @@ class BackupTests(unittest.TestCase):
 
     def test_backup_independent_integrity_rules_and_restore_to_temporary_location(self):
         backup = create_backup(self.repo, self.folder)
-        self.assertEqual(validate_backup(backup), 3)
+        self.assertEqual(validate_backup(backup), 4)
         with Repository(backup) as snapshot:
             self.assertEqual(snapshot.query_transactions(), self.repo.query_transactions())
             self.assertEqual(snapshot.list_rules(), self.repo.list_rules())

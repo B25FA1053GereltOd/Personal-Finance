@@ -409,7 +409,7 @@ class ClassificationTests(unittest.TestCase):
             self.assertEqual((rule["bank"], rule["active"], rule["merchant_key"]), ("", 0, "Synthetic Legacy"))
             self.assertIsNone(after["applied_rule_id"])
             migrated.initialize()
-            self.assertEqual(migrated._connection.execute("PRAGMA user_version").fetchone()[0], 3)
+            self.assertEqual(migrated._connection.execute("PRAGMA user_version").fetchone()[0], db.SCHEMA_VERSION)
 
     def test_failed_classification_migration_rolls_back_schema_and_rules(self):
         path = self.folder / "failed-classification-migration.sqlite3"

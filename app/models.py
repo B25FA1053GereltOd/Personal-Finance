@@ -96,6 +96,15 @@ def validate_currency(value: str) -> str:
     return value
 
 
+def validate_month(value: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError("Month must be in YYYY-MM format, such as '2026-10'.")
+    val = value.strip()
+    if not re.fullmatch(r"[0-9]{4}-(?:0[1-9]|1[0-2])", val):
+        raise ValueError("Month must be in YYYY-MM format, such as '2026-10'.")
+    return val
+
+
 @dataclass(frozen=True, kw_only=True)
 class ImportInfo:
     account_id: int
@@ -127,6 +136,7 @@ class ImportRow:
     reference: str | None = None
     balance_minor: int | None = None
     dedup_key: str | None = None
+    pos_id: str | None = None
 
     def __post_init__(self) -> None:
         require_text(self.description, "Description", allow_empty=True)
@@ -142,6 +152,8 @@ class ImportRow:
             require_integer(self.balance_minor, "Balance")
         if self.dedup_key is not None:
             require_text(self.dedup_key, "Deduplication key")
+        if self.pos_id is not None:
+            require_text(self.pos_id, "POS ID", allow_empty=True)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -212,6 +224,8 @@ class RuleSelection:
 
 def review_status(row: dict) -> str:
     """Shared review state for tables and exports; independent of Tk."""
+    if row.get("is_archived"):
+        return "Archived"
     if row["kind"] == "unclassified" or (row["kind"] in ("income", "expense") and row["category_id"] is None):
         return "Needs review"
     if row["kind"] in ("transfer", "excluded"):

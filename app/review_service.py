@@ -77,6 +77,10 @@ class ReviewService:
         self.pending = None
         return {"count": count, "rule_id": rule_id}
 
+    def save_assignment(self, transaction_ids, category_id, save_rule=False):
+        preview = self.preview_assignment(transaction_ids, category_id, save_rule=save_rule)
+        return self.confirm_assignment(preview["token"])
+
     def preview_rule(self, rule_id):
         self._idle()
         preview = self.classification.preview_rule(rule_id)

@@ -1,10 +1,13 @@
 # Dashboard
 
 `ReportingService.summarize` reads effective transaction fields in one database
-query on the existing worker thread. Money is accumulated as integer hundredths;
-percentages use Decimal. No currency conversion or floating-point money is used.
-Income and expense totals include only categorized income/expense rows. Expenses
-are positive magnitudes; net is income minus expenses, not a bank balance.
+query on the existing worker thread. Stored amounts and service aggregates use
+exact integer hundredths; the primary cards use Decimal for revenue, cost and
+net arithmetic, and percentages use Decimal. No floating-point money is used.
+The cards show Total Revenue (classified income), Total Cost (the positive
+magnitude of classified expenses), Net (Revenue minus Cost), and Unclassified.
+Transfers and unclassified rows are excluded from Revenue, Cost and Net.
+Currencies remain separate. Net is not a bank balance.
 Unclassified counts are visible; transfer/excluded amounts are omitted. Each
 currency has independent totals, category percentages and monthly summaries.
 The existing storage model represents amounts in hundredths; this does not add
@@ -50,10 +53,11 @@ $syntheticBackupFolder
 .\start.bat
 ```
 
-1. Open Dashboard, All time, Apply / refresh Dashboard. Expect 10 transactions,
-   one unclassified. MNT: income 1,200.00, expenses 150.00, net 1,050.00,
-   unclassified 1, transfers/excluded 2. USD: income 10.00, expenses 2.50,
-   net 7.50, unclassified 0. Currencies must appear separately.
+1. Open Dashboard, All time, Apply / refresh Dashboard. Expect prominent cards
+   Total Revenue: `1,200.00 MNT · 10.00 USD`; Total Cost:
+   `150.00 MNT · 2.50 USD`; Net: `1,050.00 MNT · 7.50 USD`; Unclassified: `1`.
+   The totals table shows 10 transactions, MNT transfers/excluded 2 and USD
+   unclassified 0. Keep currencies separate.
 2. Expenses by category: MNT Other expenses 130.10, count 2, 86.73%; Software &
    Digital Subscriptions 19.90, count 1, 13.27%. USD Other expenses 2.50, count 1,
    100%. Income: MNT Other income 1,200.00/count 2; USD Other income 10.00/count 1.

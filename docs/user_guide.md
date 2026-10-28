@@ -10,6 +10,35 @@ folder. Open data folder opens that exact directory in File Explorer. By default
 data lives in `%LOCALAPPDATA%\PersonalFinanceTool`; see README for the documented
 fallback and `PERSONAL_FINANCE_DATA_DIR` override.
 
+## Language and navigation
+
+The first launch uses Mongolian. Use **Тохиргоо → Хэл** to choose Mongolian or
+English; the choice is saved in `settings.json` inside the active data folder.
+Close and reopen the app to apply a changed language. This preference is not
+part of the finance database.
+
+The left sidebar opens **Хураангуй** (Dashboard), **Гүйлгээнүүд**
+(Transactions), **Хуулга импортлох** (Import), **Танигдаагүй гүйлгээг ангилах**
+(Review), **Ангиллын дүрэм** (Rules), and **Ангиллын зураглал** (Mapping Table).
+The top actions include
+**Нөөцлөх** (Backup), **Сэргээх** (Restore), and **CSV файлаар гаргах**
+(Export CSV). Summary cards show **Нийт орлого** (Total Revenue),
+**Нийт зардал** (Total Cost), **Цэвэр дүн** (Net), and **Ангилаагүй**
+(Unclassified). Revenue and Cost are the prominent cards. Currency totals remain
+separate; net is not an account balance.
+
+Category display names are presented in clear Mongolian across the entire application (Dashboard charts, Review workflow, Mapping Table, Transactions table, and CSV exports when Mongolian is active). Stable canonical keys remain stored internally in the database so that existing transactions and mapping rules never break.
+
+## Categories and category management
+
+Under **Тохиргоо → Ангиллын удирдлага** (Settings → Category Management):
+- **Ангилал нэмэх** (Add category): Add a category with direction (Expense or Income), choosing from the 27 default presets (19 expense, 8 income) or entering a custom category name.
+- **Харагдах нэр засах** (Edit display name): Customize the visible display name for any category without modifying internal database identifiers.
+- **Идэвхжүүлэх / Идэвхгүй болгох** (Enable / Disable): Toggle category availability in dropdowns for new transactions and rules. Existing transaction records and rules retain their categories.
+- **Ангилал устгах** (Delete category): Delete an unused category. Categories currently referenced by transactions, merchant rules, or mapping rules cannot be deleted and must be disabled instead.
+- **Үндсэн ангилал сэргээх** (Restore default category): Restores all 27 standard default categories, enabling any disabled presets and inserting missing ones.
+- **Чиглэлээр шүүх** (Direction filtering): Category dropdowns in Review, Mapping Table, Browser, and Edit dialogs only display categories compatible with the transaction's direction (debit/expense vs credit/income).
+
 ## Teacher smoke test (about 8 minutes)
 
 Do this after README setup/tests, with other app windows closed. Allow about eight
@@ -53,7 +82,7 @@ that the final-audit agent ran it.
    that backup, inspect the preview, then choose **No / Cancel** at confirmation.
    **Expect:** validation succeeds and cancellation keeps the 10 transactions.
    This deliberately does not test replacement of the live database.
-6. Open **Help / About**, then **Open data folder**. **Expect:** app 0.9.0, schema 3
+6. Open **Help / About**, then **Open data folder**. **Expect:** app 0.9.0, schema 4
    and the printed synthetic directory; File Explorer opens that directory.
 7. Close the app. In the same terminal run:
 
@@ -78,32 +107,76 @@ checks are separate optional manual checks in the detailed checklist below and
 
 ## Daily use
 
-1. Import: add/select the statement's account, select XLSX, confirm the account,
+1. Import: add/select the statement's bank/account identity, select XLSX, confirm the account,
    then Preview. Resolve errors and explicit duplicate decisions before Commit.
-   Cancel changes no transactions. Khan MNT is the supported parser.
+   Cancel changes no transactions. Imports append only; exact duplicates are
+   skipped and overlapping ambiguous rows need explicit Keep/Skip choices. The
+   success summary separates added, duplicate skipped, invalid, skipped and
+   unclassified counts. Khan MNT is the only supported parser; adding another
+   bank identity does not imply its statement format is supported.
 2. Review: choose unknown items and a compatible category. Selected transactions
    only is the default. Save a future merchant rule only when intended. Preview
    and confirm bulk changes. Other is a manual category, never an unknown default.
-3. Transactions: apply date, category, account, currency, direction, search or
-   unclassified filters. Edit selected changes effective values; original source
-   values remain read-only. Manual categories stay protected unless explicitly
-   unlocked. Rule changes do not silently change past transactions.
-4. Dashboard: view totals separately by currency and select date presets/custom
+3. Transactions: apply date, category, bank, account, currency, direction, merchant/
+   description search or unclassified filters. Search checks effective
+   description, merchant display and merchant key. The post-import Show
+   unclassified transactions action opens the filtered list; the separate Review
+   tab groups merchants. Use Ctrl/Shift to select one or several rows. **🗑
+   Сонгосон гүйлгээ устгах** asks for confirmation with the selected count,
+   currency totals and date range before archiving; archived transactions are
+   excluded from normal views and reports but retain their source and edit history.
+   Choose **Архивлагдсан** to inspect them and restore selected rows, or **Бүгд**
+   to show both active and archived rows. Edit selected changes effective values;
+   original source values remain read-only. Bank/account identity and mapping-rule
+   attribution are visible in the table. Manual categories stay protected unless
+   explicitly unlocked. Rule changes do not silently change past transactions.
+4. Mapping Table: create an invented rule, choose the narrowest bank/account
+   scope, enter a synthetic test sample and select **Test rule**. To apply to
+   existing records, select the rule, preview matches, select rows explicitly,
+   and apply. Nothing is preselected; Cancel leaves existing transactions
+   unchanged. See [mapping_rules.md](mapping_rules.md).
+5. Dashboard: view totals separately by currency and select date presets/custom
    bounds. Net is categorized income minus expenses, not an account balance.
    Unknown/transfer/excluded amounts are omitted. Open a category/month to browse.
-5. Export CSV: first Apply filters in Transactions. Export includes all matching
+6. Export CSV: first Apply filters in Transactions. Export includes all matching
    pages with effective edited values. Choose a new `.csv` filename. Empty results
    create no file. Existing exports are never overwritten. UTF-8 BOM supports Excel;
    for exact large amounts/identifiers, import columns as Text. Formula-like text
    gains a protective leading apostrophe; the signed amount field stays exact.
-6. Backup: choose an existing local folder. Wait for the completed/validated path.
+7. Backup: choose an existing local folder. Wait for the completed/validated path.
    Only the database snapshot is backed up, never statement Excel files.
-7. Restore: close other app instances, select a compatible backup, inspect counts,
+8. Restore: close other app instances, select a compatible backup, inspect counts,
    then confirm only if you intend to replace current data. A validated safety
    backup is created in the active data folder's `backups` subfolder first.
    Failures before/during replacement preserve the current database. After success,
    close/reopen the app. The selected backup and safety snapshot remain available.
    Detailed recovery instructions: [backup_restore.md](backup_restore.md).
+
+   ## Prompt 12 GUI checklist (manual-only; currently NOT RUN)
+
+   Use a disposable synthetic database only. Never use a private statement or
+   existing finance database for these checks.
+
+   1. Create a demo bank account named `Fictional Bank A` with a synthetic account
+      identifier. Confirm it appears with the bank identity in the account selector
+      and bank filter. The Khan parser should reject a file whose labeled account
+      does not match; no other bank format is implied.
+   2. Import the same synthetic XLSX twice. The second import should add zero rows
+      and report duplicate skips. Import an overlapping synthetic file and verify
+      each ambiguous row requires an explicit Keep/Skip choice; earlier rows remain.
+   3. In Mapping Table add an invented exact description rule, target a compatible
+      expense category and test it using a fictional sample. Preview matching
+      existing rows, select one row, apply, and verify its currency/source data did
+      not change. Confirm unselected rows remain unclassified.
+   4. Edit/disable the rule and confirm the already classified row does not change.
+      Try a one-character `Contains` value such as `T`; confirm the breadth warning.
+      Enter an invalid regular expression and confirm it cannot be saved.
+   5. Switch Settings to English and reopen to confirm Mapping Table labels and
+      controls are English. Restore Mongolian and confirm database category names,
+      transaction kinds, currencies, and bank/account identities were not
+      translated.
+
+   This checklist is a manual plan, not evidence of visual or GUI verification.
 
 Keep databases, backups, CSV exports and statements private. No app operation logs
 transaction values. An ignore rule does not remove a file already tracked by Git.
@@ -141,7 +214,7 @@ Keep that terminal open. The database path printed above ends in `finance.sqlite
 the exact backup/export destinations are also printed. Do not recreate this data
 directory during restart checks.
 
-1. Confirm the footer shows app 0.9.0, database v3 and the new `data\gui-step9-...`
+1. Confirm the footer shows app 0.9.0, database v4 and the new `data\gui-step9-...`
    directory. Help/About explains local operation. Open data folder opens only that
    directory. Dashboard All time: 10 rows, 1 unknown; MNT income 1,200.00/expenses
    150.00/net 1,050.00; USD 10.00/2.50/7.50.
@@ -162,7 +235,7 @@ directory during restart checks.
    Reusing that filename is rejected, preserving the first export.
 5. Search `no matching fictional description`, Apply, Export CSV: clear no-match
    message and no file picker/file creation. Reset filters; all 10 rows return.
-6. Restore: select the snapshot from step 2. Summary: v3, 10 transactions, 2 accounts,
+6. Restore: select the snapshot from step 2. Summary: v4, 10 transactions, 2 accounts,
    1 rule. Choose No: current edited data remains. Preview again, choose Yes:
    safety backup succeeds, restore completes, its safety path is displayed, and
    further actions are disabled with close/reopen instructions.

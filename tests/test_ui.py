@@ -18,7 +18,11 @@ from app.import_service import ImportService
 from app.models import ImportInfo, ImportRow
 from app.parsers.base import ParseIssue
 from app.ui.desktop import DesktopApp
-from app.ui.presentation import browser_filters, format_mnt, issue_location, review_status
+from app.ui.presentation import (
+    browser_filters, classification_source_label, direction_kind_label,
+    format_mnt, issue_location, merchant_description_label, review_status,
+    transaction_row_values,
+)
 from app.ui.worker import FinanceWorker
 from tests.khan_fixture import create_fixture
 from tests.ui_fixtures import create_ui_fixtures
@@ -108,6 +112,7 @@ class PresentationTests(unittest.TestCase):
 
     def test_dates_and_structured_error_coordinates(self):
         self.assertEqual(browser_filters(" 2026-10-10 ")["date_from"], "2026-10-10")
+        self.assertEqual(browser_filters(bank="Synthetic Bank")["bank"], "Synthetic Bank")
         for first, last in (("invalid", ""), ("2026-10-10T01:02:03", ""), ("2026-10-11", "2026-10-10")):
             with self.assertRaises(ValueError):
                 browser_filters(first, last)
@@ -118,6 +123,38 @@ class PresentationTests(unittest.TestCase):
         self.assertEqual(review_status(dict(kind="unclassified", category_id=None, manual_lock=False)), "Needs review")
         self.assertEqual(review_status(dict(kind="expense", category_id=13, manual_lock=True)), "Manual / protected")
         self.assertEqual(review_status(dict(kind="excluded", category_id=None, manual_lock=False)), "Excluded")
+
+    def test_transaction_row_values_include_merchant_description_direction_kind_and_source(self):
+        row = {
+            "occurred_at": "2026-10-15T14:30:00",
+            "merchant_display": "SYNTHETIC CAFE",
+            "description": "POS 123456 SYNTHETIC CAFE UB",
+            "bank": "Khan Bank",
+            "account_name": "Main MNT",
+            "amount_minor": -150000,
+            "currency": "MNT",
+            "kind": "expense",
+            "category_id": 5,
+            "classification_source": "rule",
+            "applied_mapping_rule_name": "Coffee POS Rule",
+            "applied_rule_id": None,
+            "manual_lock": False,
+        }
+        values = transaction_row_values(row, {5: "Food & dining"})
+        self.assertEqual(values[0], "2026-10-15 14:30:00")
+        self.assertEqual(values[1], "SYNTHETIC CAFE — POS 123456 SYNTHETIC CAFE UB")
+        self.assertEqual(values[2], "Khan Bank / Main MNT")
+        self.assertEqual(values[3], "-1,500.00 MNT")
+        self.assertEqual(values[4], "Food & dining")
+        self.assertEqual(values[5], "Rule: Coffee POS Rule")
+        self.assertEqual(values[6], "Classified")
+        self.assertEqual(values[7], "Debit · Expense")
+        self.assertEqual(merchant_description_label({"merchant_display": "SAME", "description": "SAME"}), "SAME")
+        self.assertEqual(direction_kind_label({"amount_minor": 25000, "kind": "income"}), "Credit · Income")
+        self.assertEqual(
+            classification_source_label({"classification_source": "manual", "applied_mapping_rule_name": None, "applied_rule_id": None}),
+            "Manual",
+        )
 
 
 class WorkerTests(unittest.TestCase):
@@ -223,6 +260,34 @@ class WorkerTests(unittest.TestCase):
         with Repository(self.database) as repo:
             self.assertEqual(repo.count_transactions(), 3)
             self.assertTrue(all(d["action"] == "skip" for d in repo.get_import_decisions(2)))
+
+    def test_mapping_worker_supports_save_preview_and_explicit_apply(self):
+        self.start()
+        self.ask("preview", path=FIXTURE, account_id=self.account)
+        self.ask("commit", decisions={})
+        rows = self.ask("browse", page=0, page_size=10).payload["rows"]
+        target = rows[0]
+        kind = "expense" if target["amount_minor"] < 0 else "income"
+        with Repository(self.database) as repository:
+            category_id = next(category["id"] for category in repository.list_categories()
+                               if category["direction"] == kind)
+        saved = self.ask(
+            "mapping_save", rule_name="Synthetic worker mapping", priority=10, active=True,
+            bank="Khan Bank", account_id=self.account, direction="any",
+            source_field="description", operator="exact",
+            match_value=target["original_description"], target_kind=kind,
+            category_id=category_id)
+        self.assertIsNone(saved.error)
+        rule = saved.payload["rule"]
+        preview = self.ask("mapping_preview", rule_id=rule["id"])
+        self.assertIsNone(preview.error)
+        self.assertIn(target["id"], {row["id"] for row in preview.payload.rows})
+        applied = self.ask("mapping_apply", token=preview.payload.token,
+                           transaction_ids=[target["id"]])
+        self.assertEqual(applied.payload, 1)
+        with Repository(self.database) as repository:
+            updated = repository.get_transaction(target["id"])
+            self.assertEqual(updated["applied_mapping_rule_name"], "Synthetic worker mapping")
 
     def test_manual_check_fixtures_support_paging_overlap_and_row_errors(self):
         self.start()
@@ -387,8 +452,8 @@ class HiddenWidgetTests(unittest.TestCase):
         self.preview()
         self.app.commit_button.invoke()
         self.pump(lambda: not self.app.busy)
-        self.assertIn("Added: 3", self.app.summary.get())
-        self.assertIn("Unclassified added: 3", self.app.summary.get())
+        self.assertIn("Нэмсэн: 3", self.app.summary.get())
+        self.assertIn("Нэмэгдсэн ангилаагүй: 3", self.app.summary.get())
         self.assertEqual(len(self.app.transactions.tree.get_children()), 3)
         self.app.search.set("КОФЕ")
         self.app.direction_text.set("Debit")
@@ -461,7 +526,7 @@ class HiddenWidgetTests(unittest.TestCase):
         self.assertTrue(self.app.commit_button.instate(["!disabled"]))
         self.app.commit_button.invoke()
         self.pump(lambda: not self.app.busy)
-        self.assertIn("Skipped: 3", self.app.summary.get())
+        self.assertIn("Алгассан: 3", self.app.summary.get())
         self.assertEqual(self.app.browser_total, 3)
         self.assertFalse(self.errors)
 

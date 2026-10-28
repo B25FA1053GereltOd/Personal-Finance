@@ -21,16 +21,28 @@ Nested writes use savepoints inside the same outer transaction.
 Do not share a repository across threads or access its private connection in
 application code. Tests access it only to inject failures or verify constraints.
 
-The schema is version **3**, recorded with `PRAGMA user_version`. Repeated
+The schema is version **4**, recorded with `PRAGMA user_version`. Repeated
 initialization and reopening preserve category IDs and seed no additional rows.
 Unsupported versions and nonempty unversioned databases are refused, not
 overwritten. The schema uses SQLite STRICT tables (SQLite 3.37+) and JSON
 validation; this workspace has SQLite 3.53.4. Step 4 atomically migrates version 1
 by adding append-only import decisions and a nonunique account/file-hash index.
 Existing categories, imports, transactions, edits, and rules are preserved.
-Version 3 adds bank-scoped active rules/revisions and merchant evidence/applied-rule
-fields. Earlier global rules retain IDs/text but are disabled with unknown bank
-scope, requiring explicit scoped recreation.
+Version 3 adds bank-scoped active merchant rules/revisions and merchant evidence.
+Version 4 adds optional immutable `pos_id`, ordered `mapping_rules`, and
+transaction snapshots of the mapping rule ID/name used for classification.
+It also adds `is_archived`, nullable `archived_at`, and an archive index. The
+v3-to-v4 migration initializes every existing transaction as active, preserving
+source identity and edit history. Archive/restore appends audit-history entries;
+source rows are never physically deleted. Normal transaction queries, reports,
+and classification queues exclude archived rows. Budget records currently
+contain planned allocations only; any transaction-derived actuals use the same
+active-only report data. Backup validation compares the complete schema,
+including the archive fields and index.
+The atomic v3-to-v4 migration preserves transactions, categories, account values,
+and legacy rules. A missing POS ID becomes NULL; no mapping rules are guessed or
+seeded. Earlier global merchant rules retain IDs/text but are disabled with
+unknown bank scope, requiring explicit scoped recreation.
 
 ## Model inputs and values
 
@@ -76,8 +88,9 @@ rows or statement contents.
 | `get_import_decisions(import_id)` | Read saved source-row dispositions, reasons, and candidate IDs in incoming order. |
 | `get_import(import_id)` | Read hash, account, parser version, filename, UTC import time, and counts. |
 | `get_transaction(transaction_id)` | Read original and effective values, provenance, and classification state. |
-| `query_transactions(...)` | Filter and paginate effective values; arguments are described below. |
+| `query_transactions(...)` | Filter and paginate effective values; arguments are described below. Results include bank/account names and mapping-rule attribution. |
 | `count_transactions(...)` | Count using the same filters as `query_transactions`, without `limit`/`offset`. |
+| `archive_transactions(transaction_ids)` / `restore_transactions(transaction_ids)` | Soft-delete or restore selected transactions atomically, recording each state change in append-only edit history. |
 | `reporting_rows(date_from=None, date_to=None)` | Single-query snapshot of effective date, money, kind and category fields for ReportingService; no source descriptions. |
 | `backup_to(destination)` | SQLite backup API on this connection's thread; caller reserves the new destination. Rejects an active write transaction. |
 | `schema_definition()` | Schema signature used for conservative restore compatibility checks. |
@@ -95,20 +108,26 @@ rows or statement contents.
 | `classification_rows(import_id=None)` | Joined original/effective rows with bank/parser context, without pagination; private data, never log. |
 | `classify_import(import_id, merchants)` | Apply extracted evidence and compatible active rules to new unlocked/unclassified import rows. |
 | `apply_rule(rule_id, selections, *, expected_revision)` | Atomic, audited selected-only application with rule/row revision and eligibility guards. |
+| `save_mapping_rule(...)`, `get_mapping_rule(id)`, `list_mapping_rules(...)` | Create/update and query named, prioritized mapping rules. Optional `bank` listing filter includes global rules plus that bank's rules. |
+| `set_mapping_rule_active(id, active, *, expected_revision)`, `delete_mapping_rule(id, *, expected_revision)` | Revision-checked state change or deletion; existing transaction classification snapshots remain. |
+| `apply_mapping_classification(id, rule_id, *, expected_revision, merchant_key=None)` | Audited, guarded assignment of one still-unclassified row; used by import and explicit mapping application. |
 
 Query keyword filters: `account_id`, `import_id`, `kind`, `category_id`,
-`review_only`, `date_from`, `date_to`, `direction`, `currency`, and `search`. Currency
+`review_only`, `date_from`, `date_to`, `direction`, `currency`, `bank`, and
+`search`. Currency
 is an optional exact uppercase three-letter code. Defaults are `limit=100, offset=0`;
 page size is 1–1000. Date bounds are inclusive `YYYY-MM-DD` values and refer to
 the stored effective bank-local date. Results are ordered by effective ISO
 timestamp text descending, then ID descending for stable ties. Offsets are
 preserved; this order is not a cross-timezone UTC chronology. `review_only=True`
 selects unclassified items and income/expense items without a category. Query
-results additionally include `account_id`.
+results additionally include `account_id`, bank/account display names and
+`applied_mapping_rule_id` / `applied_mapping_rule_name`.
 
-`direction` is `debit`, `credit`, `zero`, or `None`; it filters the effective
-amount sign without assuming income/expense kind. `search` defaults to empty
-and matches a literal substring of the effective description using NFC and
+`bank` is an optional exact bank-name filter. `direction` is `debit`, `credit`,
+`zero`, or `None`; it filters the effective amount sign without assuming
+income/expense kind. `search` defaults to empty and matches a literal substring
+of effective description, merchant display or merchant key using NFC and
 Unicode casefolding. `%`, `_`, and quotes are literal characters, not SQL
 wildcards. The repository registers its casefold function on each connection.
 Count and page queries share one parameterized filter builder; the UI never
@@ -119,8 +138,8 @@ duplicates SQL or filters an already paginated result in memory. No schema chang
 Every transaction has an immutable generated `source_id` and `import_id`.
 `original_description`, `original_occurred_at`, `original_amount_minor`,
 `original_currency`, `original_reference`, and `original_balance_minor` preserve
-the initial parsed values. `bank_datetime`, `worksheet`, `row_number`, and
-`dedup_key` preserve source provenance/identity. Database triggers reject their
+the initial parsed values. `bank_datetime`, `worksheet`, `row_number`, `dedup_key`,
+and optional `pos_id` preserve source provenance/identity. Database triggers reject their
 modification, import-metadata modification, and transaction deletion. Use an
 explicit excluded kind instead of deleting bank data. Category direction and
 an imported account's identifier/bank/currency also cannot change.
@@ -147,15 +166,20 @@ sign including zero, and must have no income/expense category. To change the
 sign of a categorized transaction, supply a compatible kind/category in the
 same edit, or explicitly reset the kind and category to unclassified/None.
 
-Rules store normalized keys, exact display text, bank scope, direction, active
-state and revision. Income/expense rules require compatible categories and signs.
+Merchant rules store normalized keys, exact display text, bank scope, direction,
+active state and revision. Mapping rules additionally store name, priority,
+bank/account scope, direction, source field, operator, match value, target kind
+and category, and timestamps. Mapping rules sort by priority descending and ID
+ascending. Income/expense targets require compatible categories and signs.
 The low-level API retains zero/transfer/excluded inputs for compatibility; the
 classifier applies only compatible debit/expense and credit/income category rules.
 Saving/disabling rules never changes past transactions; only explicit retroactive
 application can update eligible unlocked old rows. Applied rule ID/revision and
 merchant display/pattern/type are separate from immutable source values.
 
-Import `imported_count` is computed from the supplied rows; `total_count` is
+Imports append new rows; prior transactions are never replaced or deleted by an
+import. The import service skips proven exact duplicates and requires explicit
+decisions for ambiguous overlaps. `imported_count` is computed from the supplied rows; `total_count` is
 imported + skipped + rejected. Caller-supplied skipped/rejected counts are
 nonnegative integers. The entire supplied iterable is consumed in the atomic
 write; a failing row leaves neither metadata nor earlier rows behind.
@@ -179,7 +203,7 @@ imports have no decision entries.
 ```
 
 Database tests create and clean up temporary databases within the project.
-Step 9 retains schema v3 and adds no tables. Restore is the explicit whole-database
+Restore is the explicit whole-database
 recovery operation; ordinary source immutability and audit rules remain unchanged.
 Fixtures contain only synthetic text, paths, identifiers, and amounts. They
 exercise rollback, source immutability, exact money, category/sign compatibility,

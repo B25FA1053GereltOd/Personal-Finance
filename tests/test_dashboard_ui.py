@@ -2,11 +2,11 @@
 
 import sqlite3
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from app.backup import validate_backup
 from app.db import Repository
-from app.ui.dashboard import DashboardView
+from app.ui.dashboard import DashboardView, MIN_CHART_HEIGHT, safe_category_label
 from tests import test_review_ui as review_ui
 from tests.dashboard_fixture import populate
 
@@ -63,6 +63,9 @@ class DashboardControllerTests(unittest.TestCase):
         self.dashboard.end.set("2026-10-31")
         self.dashboard.apply()
         self.wait()
+        self.assertEqual([value.get() for value in self.dashboard.card_values[:3]], [
+            "0.00 MNT · 10.00 USD", "50.00 MNT · 2.50 USD", "-50.00 MNT · 7.50 USD",
+        ])
         table = self.dashboard.breakdowns["expense"]
         index = next(i for i, r in enumerate(table.items) if r["currency"] == "USD")
         table.tree.selection_set(index)
@@ -108,7 +111,7 @@ class DashboardControllerTests(unittest.TestCase):
         self.dashboard.end.set("2000-01-31")
         self.dashboard.apply()
         self.wait()
-        self.assertIn("no transactions", self.dashboard.message.get())
+        self.assertIn("гүйлгээ алга", self.dashboard.message.get())
         self.assertEqual(self.dashboard.totals.items, ())
 
     def test_backup_picker_cancel_then_worker_snapshot_success(self):
@@ -121,6 +124,77 @@ class DashboardControllerTests(unittest.TestCase):
         self.wait()
         snapshots = list(self.folder.glob("finance-backup-*.sqlite3"))
         self.assertEqual(len(snapshots), 1)
-        self.assertEqual(validate_backup(snapshots[0]), 3)
-        self.assertIn("Backup completed and validated", self.app.status.get())
+        self.assertEqual(validate_backup(snapshots[0]), 4)
+        self.assertIn("Нөөц үүсгэж шалгалаа", self.app.status.get())
+        self.assertEqual(self.errors, [])
+
+    def test_archive_refreshes_transactions_review_and_dashboard_in_sequence(self):
+        target = self.app.transactions.items[0]["id"]
+        self.assertEqual(self.dashboard.report.transaction_count, 5)
+        self.app.budget_view = Mock()
+        self.app.budget_view.load.side_effect = lambda: self.app._request(
+            "budget_list", month="2026-10", currency=None, direction=None, active=None)
+
+        self.app._request("transactions_archive", transaction_ids=[target])
+        self.wait()
+
+        self.assertEqual(self.app.browser_total, 4)
+        self.assertNotIn(target, [row["id"] for row in self.app.transactions.items])
+        self.assertEqual(self.dashboard.report.transaction_count, 4)
+        review_ids = {
+            item.transaction_id
+            for group in self.app.review_views.groups.items
+            for item in group["items"]
+        }
+        self.assertNotIn(target, review_ids)
+        self.app.budget_view.load.assert_called_once_with()
+        self.app.budget_view.handle.assert_called_once()
+        self.assertEqual(self.errors, [])
+
+    def test_dashboard_charts_currency_filter_unclassified_amount_and_empty_state(self):
+        with Repository(self.folder / "finance.sqlite3") as repo:
+            populate(repo)
+        self.assertEqual(tuple(self.dashboard.sections), ("month", "expense", "income"))
+        self.assertGreaterEqual(MIN_CHART_HEIGHT, 300)
+        for kind, expected_title in (
+            ("month", "Сарын орлого ба зарлага"),
+            ("expense", "Ангиллаар зарлага"),
+            ("income", "Ангиллаар орлого"),
+        ):
+            self.assertGreaterEqual(self.dashboard.charts[kind].min_height, 300)
+            self.assertEqual(self.dashboard.charts[kind].title, expected_title)
+        self.assertEqual(
+            safe_category_label("Earned income (part-time job, freelancing, internship)", 34),
+            "Earned income (part-time job, fre…",
+        )
+        self.dashboard.preset.set("All time")
+        self.dashboard.apply()
+        self.wait()
+        self.assertIn("MNT", self.dashboard.card_values[3].get())
+        self.assertEqual([s["currency"] for s in self.dashboard.charts["month"].series], ["MNT", "USD"])
+        self.assertEqual([s["currency"] for s in self.dashboard.charts["expense"].series], ["MNT", "USD"])
+        self.assertEqual([s["currency"] for s in self.dashboard.charts["income"].series], ["MNT", "USD"])
+        self.assertGreaterEqual(self.dashboard.charts["month"].current_height, 600)
+        self.assertTrue(len(self.dashboard.charts["month"].legends) >= 2)
+        self.assertEqual(self.dashboard.charts["month"].empty_message, "")
+        self.dashboard.currency.set("USD")
+        self.dashboard.apply()
+        self.wait()
+        self.assertEqual([s["currency"] for s in self.dashboard.charts["month"].series], ["USD"])
+        self.assertEqual([s["currency"] for s in self.dashboard.charts["expense"].series], ["USD"])
+        self.assertEqual([s["currency"] for s in self.dashboard.charts["income"].series], ["USD"])
+        self.assertGreaterEqual(self.dashboard.charts["month"].current_height, 300)
+        self.assertEqual(self.dashboard.card_values[0].get(), "10.00 USD")
+        self.assertEqual(self.dashboard.card_values[1].get(), "2.50 USD")
+        self.assertEqual(self.dashboard.card_values[2].get(), "7.50 USD")
+        self.dashboard.preset.set("Custom range")
+        self.dashboard.start.set("2000-01-01")
+        self.dashboard.end.set("2000-01-31")
+        self.dashboard.apply()
+        self.wait()
+        for kind in ("month", "expense", "income"):
+            self.assertEqual(self.dashboard.charts[kind].series, ())
+            self.assertTrue(bool(self.dashboard.charts[kind].empty_message))
+            self.assertEqual(self.dashboard.charts[kind].drawn_items[0]["type"], "empty")
+            self.assertGreaterEqual(self.dashboard.charts[kind].current_height, 300)
         self.assertEqual(self.errors, [])

@@ -337,6 +337,30 @@ additional GUI test is required. The user authorized a local commit of only
 README.md, STATUS.md, AGENT_CONTEXT.md, docs/user_guide.md, docs/acceptance.md and
 docs/requirements_audit.md after whitespace and staged-file privacy checks. No push.
 
+## Mongolian localization and UI redesign authorization
+
+The user authorized a UI-only continuation of the completed app. Preserve
+Tkinter/ttk and every existing feature, calculation, worker/service boundary,
+database schema and stored transaction value. Mongolian is the default; English
+is selectable in Settings. Store only the language choice locally, safely fall
+back to English for missing translation keys, and localize labels/messages only.
+Do not translate category names, currencies, bank/account names, merchant data,
+or raw transaction kinds/records.
+
+Use a clean light theme with navy left navigation, blue primary actions, white
+cards, readable typography and subtle borders. Show app title, active data
+location, page heading/explanation and currency-separated Total Revenue/Total
+Cost/Net/Unclassified summary cards, with Revenue and Cost visually prominent.
+Fit 1280×720 and resizing; include tooltips, disabled
+invalid actions and Mongolian destructive-action confirmations. Tkinter and ttk
+only; do not install UI/icon/font packages.
+
+Add centralized translations and tests for translations/fallback, view models
+and messages. Update README.md, STATUS.md, AGENT_CONTEXT.md, docs/ui.md and
+docs/user_guide.md, including instructions for editing translations. Use only
+synthetic tests. Do not launch the GUI, touch real bank files, modify schema or
+raw records, or commit/stage/push changes. Full automated tests are required.
+
 ## Working rules
 
 - Work inside the open VS Code workspace (`C:\Personal Finance`). Edit files
@@ -368,3 +392,36 @@ docs/requirements_audit.md after whitespace and staged-file privacy checks. No p
   public interfaces, checks and results, blockers, and the next step.
 - Do not repeat unchanged code in chat. End each reply with changed files,
   checks run, and the next action in at most 150 words.
+
+## Prompt 12 — append imports, multiple banks/accounts, Mapping Table
+
+This scope supersedes earlier schema-v3 preservation only for the explicitly
+requested Mapping Table change. Keep Tkinter/ttk, the parser-adapter boundary,
+append-only imports, immutable source fields, existing category identifiers,
+and account/bank/currency identities. Do not delete or replace prior
+transactions. Never invent a bank format or POS ID. Khan MNT remains the only
+supported statement parser; it currently provides no reliable POS ID.
+
+Schema v4 adds an optional immutable `pos_id`, persisted priority-ordered
+mapping rules with exact bank/account/direction scopes, and mapping-rule
+attribution snapshots. Migrate v3 atomically; preserve all old transactions,
+category IDs and source values. Mapping classification is deterministic and
+runs before the existing exact merchant-rule fallback during import. Highest
+priority wins; ties use ascending rule ID. Apply only to still-unclassified,
+unlocked rows. Rules never change money, currency, or deduplication identity.
+Manual classifications remain protected. Retroactive rule application must
+require a preview, explicit selected rows and revision/eligibility rechecks.
+
+Connect the Mapping Table and bank/account filters to the existing worker. Keep
+all database access and services on their owning worker thread; widgets do not
+duplicate SQL or parser logic. Translate display text only. Test with synthetic
+accounts, merchants, descriptions, POS IDs and money. Update README, status,
+context, database/import/parser/classification/UI documentation, and create
+`docs/mapping_rules.md` with fictional examples.
+
+Do not access `private_statements/` or any real financial file, launch the GUI,
+use Computer Use, alter the nested `Personal-Finance/` repository, install
+packages, stage, commit or push. Run migration, append/overlap, multi-scope,
+rule and localization tests plus the full suite; report headless checks and
+manual GUI checks separately. See `docs/mapping_rules.md` for rule behavior and
+the synthetic manual checklist in `docs/user_guide.md`.

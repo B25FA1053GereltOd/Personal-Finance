@@ -80,6 +80,18 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(stored["manual_lock"], 0)
         self.assertEqual(len(self.repo.query_transactions(review_only=True)), 1)
 
+    def test_search_matches_effective_merchant_display_and_key_with_unicode(self) -> None:
+        transaction_id = self.insert()
+        self.repo.edit_transaction(
+            transaction_id, reason="Synthetic merchant correction",
+            merchant_display="ӨВӨРМӨЦ ДЭЛГҮҮР", merchant_key="түлхүүр 17",
+        )
+
+        self.assertEqual([r["id"] for r in self.repo.query_transactions(search="дэлгүүр")],
+                         [transaction_id])
+        self.assertEqual([r["id"] for r in self.repo.query_transactions(search="ТҮЛХҮҮР 17")],
+                         [transaction_id])
+
     def test_persistence_after_reopening_includes_account_rules_and_history(self) -> None:
         transaction_id = self.insert()
         self.repo.assign_category(transaction_id, self.expense, reason="Synthetic manual review")

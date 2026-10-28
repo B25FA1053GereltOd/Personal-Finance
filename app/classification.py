@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from uuid import uuid4
 
 from app.db import Repository, classification_revision
+from app.mapping_service import MappingBlocked, MappingService
 from app.models import MerchantMatch, RuleSelection, normalize_merchant_key, require_integer
 
 
@@ -88,6 +89,7 @@ class ClassificationService:
                  extractor: Callable[[str, str, str], MerchantMatch | None] = extract_merchant) -> None:
         self.repository = repository
         self.extractor = extractor
+        self.mappings = MappingService(repository)
         self._pending: dict[str, RulePreview] = {}
 
     def _merchant(self, row: dict) -> MerchantMatch | None:
@@ -172,6 +174,10 @@ class ClassificationService:
             merchant = self._merchant(row)
             if merchant is not None:
                 merchants[row["id"]] = merchant
+        try:
+            self.mappings.classify_import(import_id, merchants)
+        except MappingBlocked:
+            raise ClassificationBlocked("Mapping classification failed; the import was not committed.") from None
         self.repository.classify_import(import_id, merchants)
 
     def preview_rule(self, rule_id: int) -> RulePreview:

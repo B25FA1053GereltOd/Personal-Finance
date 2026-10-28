@@ -50,7 +50,7 @@ may be removed on failure; existing databases, statements and backups are retain
 
 `app.backup.create_backup(repository, folder)` returns the completed path.
 `validate_backup(path)` opens read-only and requires integrity_check=ok, intact
-foreign keys, schema version 3 and the exact schema supported by this app.
+foreign keys, schema version 4 and the exact schema supported by this app.
 `prepare_restore(source, new_destination)` copies a closed backup to a new file
 and validates that separate copy. It refuses existing destinations. Validation
 does not initialize, migrate or repair its input. Older/newer or customized schemas

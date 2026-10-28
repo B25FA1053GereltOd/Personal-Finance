@@ -62,7 +62,7 @@ class HandoffTests(unittest.TestCase):
                 self.assertEqual(ReportingService(restarted).summarize(), report)
                 before = restarted.query_transactions()
                 backup = create_backup(restarted, folder)
-                self.assertEqual(validate_backup(backup), 3)
+                self.assertEqual(validate_backup(backup), 4)
                 restored = prepare_restore(backup, folder / "separate-restored.sqlite3")
                 with Repository(restored) as independent:
                     self.assertEqual(independent.query_transactions(), before)
@@ -116,7 +116,7 @@ class LocalControllerTests(unittest.TestCase):
              patch("app.ui.desktop.messagebox.askyesno", return_value=False):
             self.app._restore()
             self.wait()
-        self.assertIn("canceled", self.app.status.get())
+        self.assertIn("цуцаллаа", self.app.status.get())
         with Repository(self.folder / "finance.sqlite3") as repo:
             self.assertEqual(repo.get_transaction(1)["note"], "Later synthetic note")
         with patch("app.ui.desktop.filedialog.askopenfilename", return_value=str(backup)), \
@@ -125,7 +125,7 @@ class LocalControllerTests(unittest.TestCase):
             self.wait()
         self.assertFalse(self.app.ready)
         self.assertTrue(all(button.disabled for button in self.app.local_buttons))
-        self.assertIn("Close and reopen", self.app.status.get())
+        self.assertIn("хааж дахин нээнэ үү", self.app.status.get())
         self.assertEqual(self.app.transactions.items, ())
         self.assertFalse(self.app._request("account", name="Should not write", identifier="synthetic"))
         with Repository(self.folder / "finance.sqlite3") as repo:
@@ -174,14 +174,14 @@ class LocalControllerTests(unittest.TestCase):
             rows = list(csv.DictReader(stream))
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["signed_amount"], "2.00")
-        self.assertIn("Exported 1", self.app.status.get())
+        self.assertIn("1 гүйлгээг экспортоллоо", self.app.status.get())
         self.app.active_filters = {"search": "missing fictional row"}
         self.app._browse()
         self.wait()
         with patch("app.ui.desktop.filedialog.asksaveasfilename") as picker:
             self.app._export_csv()
         picker.assert_not_called()
-        self.assertIn("No export file", self.app.status.get())
+        self.assertIn("Файл үүсгээгүй", self.app.status.get())
 
     def test_account_filter_is_applied_to_browser_and_export_and_reset_by_drill(self):
         self.app.browser_account_box = Control()
@@ -196,7 +196,7 @@ class LocalControllerTests(unittest.TestCase):
 
     def test_about_and_data_folder_actions_are_local_and_errors_visible(self):
         self.app._about()
-        self.assertIn("Database schema 3", self.messages[-1])
+        self.assertIn("Database schema 4", self.messages[-1])
         with patch("app.ui.desktop.open_data_folder") as folder:
             self.app._open_data_folder()
         folder.assert_called_once_with(self.folder.resolve())

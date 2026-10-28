@@ -6,7 +6,11 @@ import unittest
 
 from app.db import Repository
 from app.models import ImportInfo, ImportRow, MAX_INTEGER
-from app.reporting import ReportingService, ReportingError, date_range, category_filters, month_filters, format_money
+from app.reporting import (
+    ReportingError, ReportingService, category_chart_series, category_filters,
+    chart_currencies, date_range, format_money, month_filters, monthly_chart_series,
+)
+from app.ui.view_models import dashboard_summary
 from tests.dashboard_fixture import populate
 from tests.test_ui import temporary_case
 
@@ -101,3 +105,36 @@ class ReportingTests(unittest.TestCase):
             self.assertEqual(report.totals[0]["income"], MAX_INTEGER*2)
             self.assertEqual(report.categories[0]["percentage"], Decimal("100.00"))
             self.assertEqual(format_money(MAX_INTEGER*2, "MNT"), "184,467,440,737,095,516.14 MNT")
+
+    def test_unclassified_count_and_amount_tracked_separately_by_currency(self):
+        report = self.service.summarize()
+        totals = {r["currency"]: r for r in report.totals}
+        self.assertEqual((totals["MNT"]["unclassified"], totals["MNT"]["unclassified_amount"]), (1, 5000))
+        self.assertEqual((totals["USD"]["unclassified"], totals["USD"]["unclassified_amount"]), (0, 0))
+        self.assertEqual(report.unclassified_amounts, (("MNT", 1, 5000),))
+        cards = dict(dashboard_summary(report))
+        self.assertEqual(cards["Unclassified"], "1 (50.00 MNT)")
+
+    def test_monthly_and_category_chart_series_separate_currencies_and_empty_state(self):
+        report = self.service.summarize()
+        self.assertEqual(chart_currencies(report), ("MNT", "USD"))
+        self.assertEqual(chart_currencies(report, "USD"), ("USD",))
+        monthly = monthly_chart_series(report)
+        self.assertEqual([s["currency"] for s in monthly], ["MNT", "USD"])
+        mnt_months = {b["month"]: (b["income"], b["expenses"], b["net"]) for b in monthly[0]["bars"]}
+        self.assertEqual(mnt_months, {"2026-09": (100000, 10000, 90000), "2026-10": (20000, 5000, 15000)})
+        usd_months = {b["month"]: (b["income"], b["expenses"], b["net"]) for b in monthly[1]["bars"]}
+        self.assertEqual(usd_months, {"2026-10": (1000, 250, 750)})
+        expense_series = category_chart_series(report, "expense")
+        self.assertEqual([s["currency"] for s in expense_series], ["MNT", "USD"])
+        self.assertEqual([b["amount"] for b in expense_series[0]["bars"]], [13010, 1990])
+        income_series = category_chart_series(report, "income", currency="MNT")
+        self.assertEqual(len(income_series), 1)
+        self.assertEqual(income_series[0]["currency"], "MNT")
+        self.assertEqual(income_series[0]["total_minor"], 120000)
+        empty = self.service.summarize("Custom range", "2000-01-01", "2000-01-31")
+        self.assertEqual(monthly_chart_series(empty), ())
+        self.assertEqual(category_chart_series(empty, "expense"), ())
+        self.assertEqual(category_chart_series(empty, "income"), ())
+        with self.assertRaises(ReportingError):
+            category_chart_series(report, "transfer")

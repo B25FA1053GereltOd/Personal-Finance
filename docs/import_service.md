@@ -22,6 +22,10 @@ initializes/migrates storage; preview and cancel themselves never write it.
    import_id, imported_count, skipped_count)`. Status is `committed` or
    `identical_file`. The latter references the earlier import and writes nothing.
    A different file whose rows are all skipped still records its import/audit.
+   Imports append only newly retained rows; they never replace earlier
+   transactions. The desktop summary separately shows Added, Duplicate skipped,
+   Invalid, Unclassified added and total Skipped. A commitable preview has zero
+   invalid rows; invalid rows remain visible in the blocked preview.
 
 Confirmation applies to the immutable preview snapshot even if the source file
 later changes. Re-preview to use changed contents. Previews belong to their
@@ -118,6 +122,10 @@ through a rule preview. Khan merchant extraction supports only the confirmed
 authorization-prefix purchase pattern documented in `khan_format.md` and keeps
 the complete remainder as its key. Credits and unsupported descriptions remain
 unclassified. Authorization tokens do not change reference/deduplication policy.
+The Prompt 12 Mapping Table evaluates active mapping rules before those legacy
+exact merchant rules. Mapping rules do not change source values, currency, or
+deduplication identity; existing rows change only after explicit preview and
+selected application.
 
 ## Checks
 

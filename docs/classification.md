@@ -63,6 +63,47 @@ credit category rules require income categories. No fuzzy, substring, wildcard,
 or regex matching exists. Legacy low-level transfer/excluded rules are retained
 for compatibility but never applied automatically by the classifier.
 
+## Classification Mapping Table (Prompt 12)
+
+`MappingService` evaluates user-created rules before the legacy exact merchant
+rules during the same atomic import callback. It is deterministic and has no AI
+or network calls. A mapping rule stores its name, integer priority, enabled
+state, optional bank/account scope, optional debit/credit direction, source
+field (`pos_id`, normalized merchant, or original description), operator,
+match value, target kind/category, timestamps and revision. Highest priority
+wins; equal priorities use ascending persistent rule ID. A global rule can
+match any bank; bank-scoped and account-scoped rules require exact identity.
+
+Operators are exact, contains, starts with, ends with, and Python regular
+expression search. Merchant/description text is NFC-normalized, casefolded,
+and whitespace-collapsed; punctuation and digits are retained. POS IDs are
+NFC-normalized and trimmed without casefolding. The parser sets a POS ID only
+when a verified bank format exposes one. The supported Khan parser currently
+does not expose one, so Khan `pos_id` values remain NULL. The original bank
+description is never rewritten by a mapping rule.
+
+Income targets require a positive credit and a compatible income category;
+expense targets require a negative debit and a compatible expense category.
+Transfer/excluded targets have no category. Rules only classify currently
+unclassified, unlocked transactions. Manual assignments remain protected.
+Currency and deduplication identity are not mapping targets and cannot change.
+Each applied mapping stores a rule ID/name snapshot for transaction display.
+
+Saving, editing, disabling or deleting a rule has no retroactive effect. For
+existing rows, **Preview matching transactions** creates a service-owned
+candidate list. The user must select rows in that preview and explicitly apply;
+empty selection is rejected. Only currently eligible rows for which the rule
+is still the winning rule are previewed. Rule and transaction revisions are
+rechecked atomically before any write. Applying one rule does not silently
+reclassify transactions assigned by another rule or manual corrections.
+
+The Mapping Table UI supports search, active-state and bank-scope filters,
+add/edit, enable/disable, delete with confirmation, synthetic rule testing, and
+preview/apply. Empty match values and invalid regex syntax are rejected. Short
+Contains patterns receive a specific breadth warning; users see synthetic
+match testing before saving. See [mapping_rules.md](mapping_rules.md) for
+fictional examples and operating guidance.
+
 Verified purchases require negative original/effective amounts to use a debit
 rule. Verified refunds require positive original/effective amounts and a separate
 credit rule. Debit purchase rules cannot classify refunds, transfers, non-POS
@@ -80,12 +121,15 @@ edited, replayed after success/cancel, or restored from serialized copies.
 
 ## Persistence and atomicity
 
-Schema v3 adds rule bank scope, display text, active state and revision, plus
+Schema v3 adds merchant-rule bank scope, display text, active state and revision, plus
 transaction merchant display/pattern/type and applied rule ID/revision. Applied
 IDs are foreign keys; rules cannot be physically deleted. Legacy v1/v2 rules had
 no bank scope. Migration preserves their IDs/text and disables them with an empty
 unknown bank scope; it never guesses a bank or merges existing keys. Explicitly
 re-save with the correct bank. All other source data/history survives migration.
+Schema v4 adds the Mapping Table rules, optional immutable POS ID, and mapping
+rule attribution snapshots. The migration preserves existing rows and seeds no
+real or guessed mapping rules.
 
 `ImportService` classifies at confirmation. Its optional `classification=` instance
 must share the repository. `Repository.write_import(..., classify=...)` invokes

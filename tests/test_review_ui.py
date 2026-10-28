@@ -172,3 +172,73 @@ class ReviewControllerTests(unittest.TestCase):
         self.assertEqual(len(self.view.groups.items[0]["items"]), 3)
         with Repository(self.folder / "finance.sqlite3") as repo:
             self.assertEqual(repo.count_transactions(review_only=True), 5)
+
+    def test_group_selection_populates_rows_and_categories_and_direct_save_updates_counts_and_dashboard(self):
+        from app.ui.dashboard import DashboardView
+        from tests.ui_fixtures import create_ui_fixtures
+
+        self.app.dashboard = DashboardView(self.app, table_factory)
+        self.wait()
+        self.view.skip()
+        self.assertIn("Дараа үзэх", self.view.message.get())
+        self.view.groups.tree.selection_set()
+        self.view.save_assignment()
+        self.assertEqual(len(self.errors), 1)
+        self.errors.clear()
+
+        # Selecting a merchant group automatically selects its transaction rows and populates categories.
+        self.view.groups.tree.selection_set(0)
+        self.view.expand()
+        self.assertNotIn("Дараа үзэх", self.view.message.get())
+        self.assertEqual(len(self.view.rows.tree.selection()), 3)
+        configured_values = self.view.category_box.configure.call_args.kwargs["values"]
+        self.assertTrue("Бусад зардал" in configured_values or "Other expenses" in configured_values)
+
+        # Saving without choosing a category shows a clear error and changes nothing.
+        self.view.category.set("")
+        self.view.save_assignment()
+        self.assertEqual(len(self.errors), 1)
+        self.errors.clear()
+
+        # Select one row (or use the group selection), choose Other expenses, and save directly.
+        self.view.rows.tree.selection_set(0)
+        target_id = self.view.rows.items[0].transaction_id
+        self.view.category.set("Other expenses")
+        self.view.save_assignment()
+        self.wait()
+        self.assertEqual(self.errors, [])
+        self.assertEqual(len(self.view.groups.items[0]["items"]), 2)
+        self.assertEqual(self.app.dashboard.report.unclassified_count, 4)
+        self.assertEqual(self.app.dashboard.report.totals[0]["expenses"], 100)
+        with Repository(self.folder / "finance.sqlite3") as repo:
+            updated = repo.get_transaction(target_id)
+            self.assertEqual(updated["classification_source"], "manual")
+            self.assertTrue(updated["manual_lock"])
+            self.assertEqual(repo.count_transactions(review_only=True), 4)
+
+        # Verify both direct save and preview-then-apply workflows on the 23-row synthetic manual-check statement.
+        fixtures = self.folder / "manual-fixtures"
+        create_ui_fixtures(fixtures)
+        self.app.file_path.set(str(fixtures / "synthetic-browser.xlsx"))
+        self.app.account_confirmed.set(True)
+        self.app._preview()
+        self.wait()
+        self.app._commit()
+        self.wait()
+        self.view.open()
+        self.wait()
+        before_unclassified = self.app.dashboard.report.unclassified_count
+        debit_idx = next(i for i, g in enumerate(self.view.groups.items) if g["direction"] == "debit" and len(g["items"]) == 1)
+        self.view.groups.tree.selection_set(debit_idx)
+        self.view.expand()
+        self.assertEqual(self.view.rows.tree.selection(), ("0",))
+        single_id = self.view.rows.items[0].transaction_id
+        self.view.category.set("Other expenses")
+        self.view.save_assignment()
+        self.wait()
+        self.assertEqual(self.errors, [])
+        self.assertEqual(self.app.dashboard.report.unclassified_count, before_unclassified - 1)
+        with Repository(self.folder / "finance.sqlite3") as repo:
+            classified = repo.get_transaction(single_id)
+            self.assertEqual(classified["classification_source"], "manual")
+            self.assertTrue(classified["manual_lock"])

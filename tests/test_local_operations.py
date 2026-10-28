@@ -34,7 +34,7 @@ class RestoreTests(unittest.TestCase):
         original = self.repo.get_transaction(1)
         source_bytes = self.backup.read_bytes()
         preview = self.service.preview(self.backup)
-        self.assertEqual((preview.transactions, preview.accounts, preview.rules, preview.schema), (10, 2, 1, 3))
+        self.assertEqual((preview.transactions, preview.accounts, preview.rules, preview.schema), (10, 2, 1, 4))
         self.service.cancel()
         self.assertEqual(self.repo.get_transaction(1), original)
         with self.assertRaises(BackupError):
@@ -44,7 +44,7 @@ class RestoreTests(unittest.TestCase):
             self.service.confirm(preview.token)
         result = self.service.confirm(preview.token, confirmed=True)
         self.assertTrue(result.restart_required)
-        self.assertEqual(validate_backup(result.safety_backup), 3)
+        self.assertEqual(validate_backup(result.safety_backup), 4)
         with Repository(result.safety_backup) as preserved:
             self.assertEqual(preserved.get_transaction(1), original)
         with Repository(self.database) as restarted:
@@ -137,7 +137,7 @@ with Repository(sys.argv[1]) as repo:
         with Repository(self.database) as recovered:
             self.assertEqual(recovered.get_transaction(1)["note"], "Retain through interruption")
             self.assertEqual(recovered.count_transactions(), 10)
-        self.assertEqual(validate_backup(self.database), 3)
+        self.assertEqual(validate_backup(self.database), 4)
 
     def test_restore_with_wal_preserves_safety_snapshot(self):
         self.repo._connection.execute("PRAGMA journal_mode=WAL")

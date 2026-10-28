@@ -103,8 +103,8 @@ $env:PERSONAL_FINANCE_DATA_DIR = Join-Path (Get-Location).Path ('data\gui-step7-
    Select `C:\Personal Finance\data\review-fixtures\review-initial.xlsx`, confirm
    the account and Preview. Expect five valid rows and zero blocking errors.
    Cancel: Transactions stays empty. Preview again and Commit: five rows appear.
-2. Click Review unknown merchants. Expect one merchant group containing three
-   rows and two individual items. Expand the group; choose Skip for later and
+2. Open the Review tab (or choose Review in the sidebar). Expect one merchant
+   group containing three rows and two individual items. Expand the group; choose Skip for later and
    Refresh review: all remain. Confirm the individual rows can also be expanded
    and edited; a future rule is unavailable for these unreliable descriptions.
 3. Expand the merchant group, select only its first row, choose Other expenses,

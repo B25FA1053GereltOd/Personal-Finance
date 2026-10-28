@@ -114,6 +114,23 @@ class ImportServiceTests(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(), before)
         self.assertEqual(self.counts(), (1, 3, 3))
 
+    def test_identical_file_after_archive_remains_a_duplicate(self):
+        service = ImportService(self.repo)
+        first = service.confirm(service.preview(self.fixture, self.khan_account))
+        first_transaction = self.repo.query_transactions(import_id=first.import_id)[0]
+        self.repo.archive_transactions([first_transaction["id"]])
+
+        renamed = self.folder / "archived-statement-copy.xlsx"
+        renamed.write_bytes(self.fixture.read_bytes())
+        preview = service.preview(renamed, self.khan_account)
+        self.assertEqual((preview.valid_count, preview.duplicate_count), (0, 3))
+        result = service.confirm(preview)
+
+        self.assertEqual((result.status, result.import_id, result.imported_count),
+                         ("identical_file", first.import_id, 0))
+        self.assertEqual(self.repo.count_transactions(account_id=self.khan_account), 2)
+        self.assertEqual(self.repo.count_transactions(account_id=self.khan_account, archived=None), 3)
+
     def test_hash_dedup_is_scoped_to_account(self):
         path = self.prepare([self.row()])
         self.service.confirm(self.service.preview(path, self.account))

@@ -51,6 +51,9 @@ class PreviewRow:
     source: ImportRow = field(repr=False)
     status: str  # valid, invalid, duplicate, ambiguous
     candidates: tuple[ExistingRow, ...] = field(default=(), repr=False)
+    matched_rule: str | None = field(default=None, repr=False)
+    matched_category: str | None = field(default=None, repr=False)
+    classification_source: str = "unclassified"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -258,6 +261,8 @@ class ImportService:
                 if existing.source.dedup_key == key:
                     trusted_by_key[key].append(existing)
 
+        categories = {c["id"]: c["name"] for c in self.repository.list_categories()}
+        merchant_rules = {(r["bank"], r["merchant_key"], r["direction"]): r for r in self.repository.list_rules()}
         rows = []
         for index, record in enumerate(parsed.records):
             source = replace(record.source, dedup_key=self._key(account_id, record.source, policy))
@@ -276,7 +281,48 @@ class ImportService:
                     status = "duplicate"
                 else:
                     status = "ambiguous" if candidates else "valid"
-            rows.append(PreviewRow(index=index, source=source, status=status, candidates=candidates))
+            matched_rule = None
+            matched_category = None
+            classification_source = "unclassified"
+            if status in ("valid", "ambiguous"):
+                synthetic_row = {
+                    "account_id": account["id"],
+                    "bank": account["bank"],
+                    "parser_version": self.parser.version,
+                    "pos_id": source.pos_id,
+                    "original_description": source.description,
+                    "description": source.description,
+                    "original_amount_minor": source.amount_minor,
+                    "amount_minor": source.amount_minor,
+                    "original_currency": source.currency,
+                    "currency": source.currency,
+                    "manual_lock": 0,
+                    "classification_source": "unclassified",
+                    "kind": "unclassified",
+                    "category_id": None,
+                }
+                try:
+                    merchant = self.classification._merchant(synthetic_row)
+                except ClassificationBlocked:
+                    merchant = None
+                winning = self.classification.mappings.winning_rule(
+                    synthetic_row, merchant.key if merchant is not None else None)
+                if winning is not None:
+                    matched_rule = winning["rule_name"]
+                    matched_category = categories.get(winning["category_id"]) or winning["target_kind"].capitalize()
+                    classification_source = "mapping_rule"
+                elif merchant is not None:
+                    direction = "debit" if merchant.transaction_type == "purchase" else "credit"
+                    m_rule = merchant_rules.get((account["bank"], merchant.key, direction))
+                    if m_rule is not None and self.repository.rule_eligible(synthetic_row, merchant, m_rule):
+                        matched_rule = f'Merchant rule #{m_rule["id"]}'
+                        matched_category = categories.get(m_rule["category_id"])
+                        classification_source = "rule"
+            rows.append(PreviewRow(
+                index=index, source=source, status=status, candidates=candidates,
+                matched_rule=matched_rule, matched_category=matched_category,
+                classification_source=classification_source,
+            ))
         rows = tuple(rows)
         preview = ImportPreview(
             token=uuid4().hex, info=info, revision=state["revision"], rows=rows, groups=_groups(rows),

@@ -19,6 +19,30 @@ Step 9 adds confirmed restore with a safety backup, filtered CSV export, an acco
 filter, Help/About and Open data folder. Start with the
 [user guide](docs/user_guide.md). Requirement-by-requirement verification and
 limitations are recorded in [acceptance.md](docs/acceptance.md).
+Prompt 12 adds append-only overlapping imports, multiple bank/account identity
+and filters, an optional parser POS ID field, and a prioritized Classification
+Mapping Table with explicit preview/apply for existing transactions. Only the
+verified Khan Bank MNT format is currently importable; no other bank format is
+assumed. See [mapping_rules.md](docs/mapping_rules.md).
+
+## Mongolian interface
+
+The desktop interface defaults to Mongolian and can be changed to English using
+**Settings → Language**. The preference is stored in `settings.json` inside the
+active data folder, outside SQLite, and takes effect after restarting the app.
+The redesigned Tkinter/ttk window has sidebar navigation, a responsive light
+content area, Dashboard summary cards, tooltips and Mongolian confirmation
+messages. No UI library, icon package or downloaded font was added.
+
+Translations live in [`app/ui/i18n.py`](app/ui/i18n.py). Add or edit a UI label
+there using its existing English text as the dictionary key and Mongolian text
+as the value. English is the fallback for any unmapped key. Dynamic messages
+with values belong in `MESSAGE_TEMPLATES`; display-only labels are translated
+at the widget boundary. Do not translate database category names, currencies,
+account or bank names, merchant data, or transaction kinds before saving them.
+For translated combobox values, map the selected display value back to its
+English/source value before calling a service. Add regression cases to
+`tests/test_i18n.py`, run the focused UI tests, then run the full unittest suite.
 
 ## Teacher quick start: clone and set up on Windows
 
@@ -26,7 +50,7 @@ Use Python **3.11 or newer** with Tcl/Tk and SQLite **3.37 or newer**, Git and
 VS Code. The code uses `hashlib.file_digest` and SQLite STRICT tables. These are
 compatibility minimums from code inspection, not a tested version matrix. The
 tested environment is Python **3.15.0**, SQLite **3.53.4**, openpyxl **3.1.5** and
-et_xmlfile **2.0.0**. The app is version 0.9.0; the database schema is version 3.
+et_xmlfile **2.0.0**. The app is version 0.9.0; the database schema is version 4.
 
 The configured remote below was checked locally on 2026-10-21. Its accessibility
 and inclusion of the latest local work have **not** been checked, and this audit
@@ -208,10 +232,13 @@ Keep/Skip for every ambiguous row. **Cancel preview** writes nothing; **Commit
 import** applies the existing atomic import/classification services. Account
 creation is a separate explicit action that persists even if a preview is canceled.
 
-The **Transactions** tab provides inclusive date bounds, category, account, currency, debit/credit,
-unclassified and literal Unicode description search filters. Click **Apply /
-refresh** after changing filters. Pages contain 10, 25, 50 or 100 rows. **Review
-unknown merchants** opens grouped review. Assign selected rows only by default,
+The **Transactions** tab provides inclusive date bounds, category, account,
+currency, debit/credit, unclassified and literal Unicode merchant/description
+search filters. Search matches the effective description, merchant display and
+merchant key. Click **Apply / refresh** after changing filters. Pages contain
+10, 25, 50 or 100 rows. **Show unclassified transactions** clears other filters
+and opens the filtered transaction list. Use the separate Review tab for grouped
+merchant review. Assign selected rows only by default,
 or explicitly save a future merchant rule; preview before confirming bulk changes.
 Edit a selected transaction's effective fields while viewing immutable source and
 history tabs. Manual assignments remain protected. Rules can be edited/disabled

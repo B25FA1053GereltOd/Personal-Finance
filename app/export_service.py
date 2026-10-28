@@ -18,18 +18,35 @@ class ExportResult:
     path: Path | None = field(default=None, repr=False)
 
 
-FIELDS = ("date_time", "account", "account_identifier", "bank", "description",
-          "merchant", "signed_amount", "currency", "kind", "category", "note",
-          "classification_source", "review_status", "manual_protection")
+FIELDS = (
+    "date_time",
+    "account",
+    "account_identifier",
+    "bank",
+    "description",
+    "merchant",
+    "signed_amount",
+    "currency",
+    "kind",
+    "category",
+    "note",
+    "classification_source",
+    "review_status",
+    "manual_protection",
+)
 
 
 def spreadsheet_text(value):
     """Neutralize text that spreadsheet programs could execute as a formula."""
     text = str(value or "")
-    return "'" + text if text.lstrip().startswith(("=", "+", "-", "@")) or text.startswith(("\t", "\r", "\n")) else text
+    return (
+        "'" + text
+        if text.lstrip().startswith(("=", "+", "-", "@")) or text.startswith(("\t", "\r", "\n"))
+        else text
+    )
 
 
-def export_csv(repository, path, filters):
+def export_csv(repository, path, filters, translate=None, language=None):
     """Export all matching rows under one read snapshot; refuse overwrites."""
     target, owned, complete = Path(path), False, False
     try:
@@ -48,21 +65,49 @@ def export_csv(repository, path, filters):
                 for offset in range(0, count, 500):
                     for row in repository.query_transactions(**filters, limit=500, offset=offset):
                         account = accounts[row["account_id"]]
-                        values = (row["occurred_at"], account["name"], account["identifier"], account["bank"],
-                                  row["description"], row["merchant_display"] or "",
-                                  str(minor_to_money(row["amount_minor"])), row["currency"], row["kind"],
-                                  categories.get(row["category_id"], ""), row["note"], row["classification_source"],
-                                  review_status(row), "protected" if row["manual_lock"] else "unlocked")
+                        cat_name = categories.get(row["category_id"], "")
+                        if cat_name:
+                            if callable(translate):
+                                cat_name = translate(cat_name)
+                            elif language == "mn":
+                                from app.ui.i18n import translate as i18n_translate
+
+                                cat_name = i18n_translate(cat_name, "mn")
+                        values = (
+                            row["occurred_at"],
+                            account["name"],
+                            account["identifier"],
+                            account["bank"],
+                            row["description"],
+                            row["merchant_display"] or "",
+                            str(minor_to_money(row["amount_minor"])),
+                            row["currency"],
+                            row["kind"],
+                            cat_name,
+                            row["note"],
+                            row["classification_source"],
+                            review_status(row),
+                            "protected" if row["manual_lock"] else "unlocked",
+                        )
                         # Amount is validated numeric text; never prefix/round it.
-                        writer.writerow([value if i == 6 else spreadsheet_text(value) for i, value in enumerate(values)])
+                        writer.writerow(
+                            [
+                                value if i == 6 else spreadsheet_text(value)
+                                for i, value in enumerate(values)
+                            ]
+                        )
             complete = True
             return ExportResult(count, target)
     except ExportError:
         raise
     except FileExistsError:
-        raise ExportError("That export already exists. Choose a new filename; nothing was overwritten.") from None
+        raise ExportError(
+            "That export already exists. Choose a new filename; nothing was overwritten."
+        ) from None
     except (OSError, ValueError, TypeError, sqlite3.Error):
-        raise ExportError("Export failed. Check filters, folder permissions and free disk space, then retry.") from None
+        raise ExportError(
+            "Export failed. Check filters, folder permissions and free disk space, then retry."
+        ) from None
     finally:
         if owned and not complete:
             try:
