@@ -228,6 +228,20 @@ def apply_theme(root, theme: str | ThemeTokens | None = None) -> ttk.Style:
     )
 
     style.configure(
+        "TMenubutton",
+        background=tokens.card_bg,
+        foreground=tokens.text,
+        bordercolor=tokens.border,
+        padding=(10, 6),
+        font=(font_family, 10),
+    )
+    style.map(
+        "TMenubutton",
+        background=[("active", tokens.surface), ("disabled", tokens.surface)],
+        foreground=[("disabled", tokens.muted), ("!disabled", tokens.text)],
+    )
+
+    style.configure(
         "Primary.TButton",
         background=tokens.primary,
         foreground="#ffffff",
@@ -279,14 +293,23 @@ def apply_theme(root, theme: str | ThemeTokens | None = None) -> ttk.Style:
     style.configure("Horizontal.TScrollbar", background=tokens.border, troughcolor=tokens.bg)
 
     style.configure("Topbar.TFrame", background=tokens.card_bg)
+    style.configure("TopbarLogo.TLabel", background=tokens.card_bg)
+    style.configure("TopbarBrand.TLabel", background=tokens.card_bg, foreground=tokens.text, font=(font_family, 14, "bold"))
+    style.configure("TopbarDivider.TLabel", background=tokens.card_bg, foreground=tokens.border, font=(font_family, 12))
+    style.configure("TopbarTag.TLabel", background=tokens.card_bg, foreground=tokens.muted, font=(font_family, 9))
     style.configure("Footer.TFrame", background=tokens.surface)
     style.configure("Footer.TLabel", background=tokens.surface, foreground=tokens.muted, font=(font_family, 9))
     style.configure("FooterStatus.TLabel", background=tokens.surface, foreground=tokens.text, font=(font_family, 10))
     style.configure("FooterError.TLabel", background=tokens.surface, foreground=tokens.expense, font=(font_family, 10, "bold"))
-    style.configure("Brand.TLabel", background=tokens.card_bg, foreground=tokens.text, font=(font_family, 17, "bold"))
+    style.configure("Brand.TLabel", background=tokens.card_bg, foreground=tokens.text, font=(font_family, 16, "bold"))
     style.configure("Tag.TLabel", background=tokens.card_bg, foreground=tokens.muted)
 
     style.configure("Sidebar.TFrame", background=tokens.sidebar_bg)
+    style.configure("SidebarBrand.TFrame", background=tokens.sidebar_bg)
+    style.configure("SidebarLogo.TLabel", background=tokens.sidebar_bg)
+    style.configure("SidebarLogoText.TLabel", background=tokens.sidebar_bg, foreground=tokens.sidebar_text, font=(font_family, 16, "bold"))
+    style.configure("SidebarSubtitle.TLabel", background=tokens.sidebar_bg, foreground=tokens.sidebar_muted, font=(font_family, 8, "bold"))
+    style.configure("SidebarBadge.TLabel", background=tokens.sidebar_bg, foreground=tokens.income, font=(font_family, 8, "bold"))
     style.configure(
         "SidebarTitle.TLabel",
         background=tokens.sidebar_bg,
@@ -298,6 +321,23 @@ def apply_theme(root, theme: str | ThemeTokens | None = None) -> ttk.Style:
         background=tokens.sidebar_bg,
         foreground=tokens.sidebar_muted,
         font=(font_family, 9),
+    )
+    style.configure("Toolbar.TFrame", background=tokens.bg)
+    style.configure(
+        "TableAction.TButton",
+        background=tokens.card_bg,
+        foreground=tokens.text,
+        bordercolor=tokens.border,
+        padding=(8, 5),
+        font=(font_family, 9),
+    )
+    style.configure(
+        "FilterToggle.TButton",
+        background=tokens.surface,
+        foreground=tokens.primary,
+        bordercolor=tokens.border,
+        padding=(8, 5),
+        font=(font_family, 9, "bold"),
     )
     for name, background in (("Sidebar.TButton", tokens.sidebar_bg), ("SidebarActive.TButton", tokens.sidebar_active)):
         is_active = "Active" in name

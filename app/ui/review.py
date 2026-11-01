@@ -24,10 +24,13 @@ class ReviewViews:
         self.save_future = tk.BooleanVar(app.window, False)
         self.message = tk.StringVar(app.window, app.t("Refresh to load transactions awaiting review."))
         self.review_tab = ttk.Frame(app.tabs, padding=10)
+        self.suggestions_tab = ttk.Frame(app.tabs, padding=10)
         self.rules_tab = ttk.Frame(app.tabs, padding=10)
         app.tabs.add(self.review_tab, text="Review")
+        app.tabs.add(self.suggestions_tab, text="Suggestions")
         app.tabs.add(self.rules_tab, text="Rules")
         self._build_review()
+        self._build_suggestions()
         self._build_rules()
 
     def _button(self, parent, text, command, icon=None):
@@ -50,6 +53,7 @@ class ReviewViews:
         self._button(bar, "Refresh review", self.open, "🔄")
         self._button(bar, "Expand selected group", self.expand, "🔍")
         self._button(bar, "Skip for later", self.skip, "⏭")
+        self._button(bar, "Export classified CSV…", lambda: getattr(self.app, "_export_transactions_csv", self.app._export_csv)(), "📤")
         self.groups = self.table_factory(tab, [
             ("merchant", "Merchant / individual item", 240), ("count", "Count", 65),
             ("amount", "Total MNT", 130), ("direction", "Direction", 80),
@@ -77,6 +81,48 @@ class ReviewViews:
         self._button(controls, "Preview selected changes", self.preview_assignment, "👁")
         self._button(controls, "Edit selected transaction", self.edit_review_row, "✏")
         ttk.Label(tab, textvariable=self.message, wraplength=1050).grid(row=5, column=0, sticky="w", pady=6)
+
+    def _build_suggestions(self):
+        tab = self.suggestions_tab
+        tab.columnconfigure(0, weight=1)
+        tab.rowconfigure(1, weight=1)
+        bar = ttk.Frame(tab)
+        bar.grid(row=0, column=0, sticky="ew")
+        self._button(bar, "Refresh review", self.open, "🔄")
+        self._button(bar, "Accept suggestion", self.accept_selected_suggestion, "✓")
+        self._button(bar, "Reject suggestion", self.reject_selected_suggestion, "✕")
+        self._button(bar, "Edit suggestion", self.edit_selected_suggestion, "✏")
+        self._button(bar, "Export classified CSV…", lambda: getattr(self.app, "_export_transactions_csv", self.app._export_csv)(), "📤")
+        self.suggestions = self.table_factory(tab, [
+            ("id", "ID", 55), ("reason", "Reason", 320),
+            ("category", "Suggested category", 220), ("confidence", "Confidence", 100),
+            ("source", "Source", 140)], title="Local AI Suggestions", height=12)
+        self.suggestions.grid(row=1, column=0, sticky="nsew")
+        self.suggestions_message = tk.StringVar(self.app.window, "")
+        ttk.Label(tab, textvariable=self.suggestions_message, wraplength=1050).grid(row=2, column=0, sticky="w", pady=6)
+
+    def accept_selected_suggestion(self):
+        items = selected_items(self.suggestions)
+        if not items:
+            self.app._error("Select at least one suggestion.")
+            return
+        for item in items:
+            self.app._request("suggestion_accept", transaction_id=item["transaction_id"], category_id=item["category_id"])
+
+    def reject_selected_suggestion(self):
+        items = selected_items(self.suggestions)
+        if not items:
+            self.app._error("Select at least one suggestion.")
+            return
+        for item in items:
+            self.app._request("suggestion_reject", transaction_id=item["transaction_id"])
+
+    def edit_selected_suggestion(self):
+        items = selected_items(self.suggestions)
+        if not items:
+            self.app._error("Select a suggestion to edit.")
+            return
+        self.app._request("edit_get", transaction_id=items[0]["transaction_id"])
 
     def _build_rules(self):
         tab = self.rules_tab
@@ -439,6 +485,18 @@ class ReviewViews:
             self.rules.set_items(payload["rules"], lambda r: (r["id"], r["bank"], r["merchant_key"], r["direction"],
                 categories.get(r["category_id"], self.app.t("No category")),
                 self.app.t("Active" if r["active"] else "Disabled")))
+            suggestions = payload.get("suggestions", [])
+            conf_map = {"high": self.app.t("High"), "medium": self.app.t("Medium"), "low": self.app.t("Low")}
+            src_map = {"manual_memory": self.app.t("Manual memory"), "time_rule": self.app.t("Time rule")}
+            if hasattr(self, "suggestions"):
+                self.suggestions.set_items(suggestions, lambda s: (
+                    s["transaction_id"], s["reason"], s["category_name"],
+                    conf_map.get(s["confidence"], s["confidence"]),
+                    src_map.get(s["source"], s["source"])))
+            if hasattr(self, "suggestions_message"):
+                self.suggestions_message.set(translate_format(
+                    "{count} suggestions available. Accept to confirm and remember.", count=len(suggestions)
+                ) if suggestions else self.app.t("No AI/memory suggestions at this time."))
             self.message.set(translate_format(
                 "{groups} merchant groups; {individual} individual items. Skipping changes nothing.",
                 groups=len(queue.groups), individual=len(queue.individual)))
@@ -448,6 +506,13 @@ class ReviewViews:
         elif operation == "review_cancel":
             self._close_preview()
             self.message.set(self.app.t("Preview canceled. No categories or rules were changed."))
+        elif operation in ("suggestion_accept", "suggestion_reject", "suggestion_edit"):
+            msg = {"suggestion_accept": "Suggestion accepted and saved to local memory.",
+                   "suggestion_reject": "Suggestion dismissed.",
+                   "suggestion_edit": "Suggestion updated and saved to local memory."}.get(operation, "Updated.")
+            self.app.summary.set(self.app.t(msg))
+            self.message.set(self.app.t(msg))
+            self.app._request("review_load")
         elif operation in ("review_apply", "review_save", "rule_apply", "rule_change", "edit_save"):
             if operation in ("review_apply", "rule_apply"):
                 self._close_preview()

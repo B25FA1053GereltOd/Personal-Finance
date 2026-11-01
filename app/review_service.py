@@ -18,8 +18,14 @@ class ReviewService:
         self.pending = None
 
     def load(self):
+        unclassified = [
+            r for r in self.repository.classification_rows()
+            if r["kind"] == "unclassified" or (r["kind"] in ("income", "expense") and r["category_id"] is None)
+        ]
+        suggestions = self.classification.memory_service.find_suggestions(unclassified)
         return {"queue": self.classification.review(),
-                "rules": self.repository.list_rules(include_disabled=True)}
+                "rules": self.repository.list_rules(include_disabled=True),
+                "suggestions": suggestions}
 
     def _category(self, category_id, amounts):
         category = next((c for c in self.repository.list_categories() if c["id"] == category_id), None)
@@ -153,3 +159,22 @@ class ReviewService:
                 merchant_display=fields["merchant_display"] or None, category_id=category,
                 kind=kind, note=fields["note"], manual_lock=not clear_protection)
         return {"row": result}
+
+    def accept_suggestion(self, transaction_id, category_id):
+        self._idle()
+        row = self.repository.get_transaction(transaction_id)
+        self._category(category_id, [row["amount_minor"]])
+        res = self.classification.memory_service.accept_suggestion(transaction_id, category_id)
+        return {"row": res}
+
+    def reject_suggestion(self, transaction_id):
+        self._idle()
+        self.classification.memory_service.reject_suggestion(transaction_id)
+        return {"transaction_id": transaction_id}
+
+    def edit_suggestion(self, transaction_id, new_category_id):
+        self._idle()
+        row = self.repository.get_transaction(transaction_id)
+        self._category(new_category_id, [row["amount_minor"]])
+        res = self.classification.memory_service.edit_suggestion(transaction_id, new_category_id)
+        return {"row": res}

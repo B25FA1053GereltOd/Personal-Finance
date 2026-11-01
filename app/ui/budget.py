@@ -1,4 +1,4 @@
-"""Monthly budget UI: view, filter, add, edit, and toggle budgets by month, currency and category."""
+"""Monthly budget UI: variance analysis (Budget vs Actual), visual progress charts, and budget management."""
 
 from datetime import datetime
 import tkinter as tk
@@ -8,6 +8,7 @@ from app.models import money_to_minor, validate_currency, validate_month
 from app.reporting import format_money
 from app.ui.i18n import get_category_display_name, localize_widget_tree, source_text
 from app.ui.review import selected_items
+from app.ui.theme import BORDER, FONT, GREEN, MUTED, NAVY, RED, SURFACE, WHITE, get_current_theme
 
 
 def shift_month(month_str: str, delta: int) -> str:
@@ -20,6 +21,151 @@ def shift_month(month_str: str, delta: int) -> str:
         return f"{new_y:04d}-{new_m:02d}"
     except Exception:
         return datetime.now().strftime("%Y-%m")
+
+
+class VarianceCanvas:
+    """Visual progress chart comparing ТӨСӨВ (Budget) vs БОДИТ (Actual)."""
+
+    def __init__(self, parent, translate=lambda s: s, *, min_height: int = 220):
+        self.translate = translate
+        self.min_height = min_height
+        self.items = []
+        self.theme_tokens = None
+        self.canvas = None
+        if isinstance(parent, tk.Misc) and isinstance(getattr(parent, "_w", None), str):
+            tokens = get_current_theme()
+            self.canvas = tk.Canvas(
+                parent, background=tokens.chart_bg, highlightthickness=1,
+                highlightbackground=tokens.border, height=self.min_height,
+            )
+            self.canvas.bind("<Configure>", lambda _event: self._redraw(), add="+")
+
+    def grid(self, **kwargs):
+        if self.canvas is not None:
+            self.canvas.grid(**kwargs)
+
+    def grid_remove(self):
+        if self.canvas is not None:
+            self.canvas.grid_remove()
+
+    def pack(self, **kwargs):
+        if self.canvas is not None:
+            self.canvas.pack(**kwargs)
+
+    def set_theme(self, tokens):
+        self.theme_tokens = tokens
+        if self.canvas is not None:
+            self.canvas.configure(background=tokens.chart_bg, highlightbackground=tokens.border)
+        self._redraw()
+
+    def render(self, items):
+        self.items = list(items)
+        self._redraw()
+
+    def _redraw(self):
+        tokens = self.theme_tokens or get_current_theme()
+        if self.canvas is None:
+            return
+
+        self.canvas.delete("all")
+        width = max(640, int(self.canvas.winfo_width()))
+        pad_x = 20
+
+        if not self.items:
+            h = self.min_height
+            if int(self.canvas.cget("height")) != h:
+                self.canvas.configure(height=h)
+            msg = self.translate("Сонгосон сард төсөв болон гүйлгээний өгөгдөл байхгүй байна.")
+            self.canvas.create_text(
+                width // 2, h // 2, text=msg, fill=tokens.muted, font=(FONT, 10),
+            )
+            return
+
+        # Show top 8 items
+        display_items = self.items[:8]
+        row_h = 36
+        total_h = max(self.min_height, 40 + len(display_items) * row_h)
+        if int(self.canvas.cget("height")) != total_h:
+            self.canvas.configure(height=total_h)
+
+        # Header
+        self.canvas.create_text(
+            pad_x, 18, anchor="w",
+            text=self.translate("Төсвийн биелэлт ба зөрүү (Топ ангиллууд)"),
+            fill=tokens.text, font=(FONT, 10, "bold"),
+        )
+
+        label_w = min(220, max(140, int(width * 0.22)))
+        info_w = min(320, max(200, int(width * 0.35)))
+        bar_x0 = pad_x + label_w + 10
+        bar_max_w = max(100, width - bar_x0 - info_w - pad_x)
+
+        max_amount = max(max(it["planned_minor"], it["actual_minor"], 1) for it in display_items)
+
+        top_y = 38
+        for i, it in enumerate(display_items):
+            y = top_y + i * row_h
+            cat_name = it.get("category_name", "Бусад")
+            planned = it["planned_minor"]
+            actual = it["actual_minor"]
+            curr = it.get("currency", "MNT")
+            pct = it.get("utilization_pct", 0.0)
+            status = it.get("status", "")
+
+            # Color scheme:
+            # Under budget (Favorable): Green
+            # Over budget (Unfavorable): Red
+            # Target met (Income): Green
+            # Shortfall (Income): Red/Orange
+            if status in ("under_budget", "target_met"):
+                bar_color = tokens.green
+            elif status in ("over_budget", "shortfall"):
+                bar_color = tokens.red
+            else:
+                bar_color = tokens.primary
+
+            # Draw category text
+            self.canvas.create_text(
+                pad_x, y + 10, anchor="w", text=cat_name,
+                fill=tokens.text, font=(FONT, 9, "bold"), width=label_w - 6,
+            )
+
+            # Planned bar outline / background
+            planned_w = max(4, int(planned * bar_max_w // max_amount)) if planned > 0 else 0
+            actual_w = max(4, int(actual * bar_max_w // max_amount)) if actual > 0 else 0
+
+            # Base background container
+            self.canvas.create_rectangle(
+                bar_x0, y + 2, bar_x0 + bar_max_w, y + 18,
+                fill=tokens.surface, outline=tokens.border,
+            )
+
+            # Planned marker line/box
+            if planned_w > 0:
+                self.canvas.create_rectangle(
+                    bar_x0, y + 2, bar_x0 + planned_w, y + 18,
+                    fill="", outline=tokens.muted, dash=(2, 2),
+                )
+
+            # Actual filled bar
+            if actual_w > 0:
+                self.canvas.create_rectangle(
+                    bar_x0, y + 2, bar_x0 + actual_w, y + 18,
+                    fill=bar_color, outline="",
+                )
+
+            # Numbers & Variance label
+            var_minor = it["variance_minor"]
+            var_sign = "+" if var_minor > 0 else ""
+            var_str = f"{var_sign}{format_money(var_minor, curr)}"
+            stats_text = f"БОДИТ: {format_money(actual, curr)} ({pct:.1f}%)"
+
+            text_x = bar_x0 + bar_max_w + 12
+            self.canvas.create_text(
+                text_x, y + 10, anchor="w",
+                text=f"{stats_text}  |  Зөрүү: {var_str}",
+                fill=tokens.text, font=(FONT, 9),
+            )
 
 
 class BudgetDialog:
@@ -186,13 +332,16 @@ class BudgetDialog:
 
 
 class BudgetView:
-    """Monthly budget management page with month navigation, filtering, and summary cards."""
+    """Corporate finance budget vs actual variance analysis and budget management page."""
 
     def __init__(self, app, table_factory):
         self.app = app
         self.table_factory = table_factory
         self.budgets = []
         self.summary = {}
+        self.variance_items = []
+        self.variance_totals = {}
+        self.mode = "variance"  # "variance" or "management"
 
         self.tab = ttk.Frame(app.tabs, padding=10)
         app.tabs.add(self.tab, text="Budget")
@@ -200,97 +349,149 @@ class BudgetView:
         self.tab.rowconfigure(3, weight=1)
 
         # ---------------------------------------------------------------------
-        # Row 0: Month Navigation & Filter Controls
+        # Row 0: Top Segmented Header & Navigation Bar
         # ---------------------------------------------------------------------
-        nav_frame = ttk.Frame(self.tab)
-        nav_frame.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        top_bar = ttk.Frame(self.tab)
+        top_bar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+
+        # View segment switch
+        segment_frame = ttk.Frame(top_bar)
+        segment_frame.pack(side="left")
+
+        self.btn_seg_variance = ttk.Button(
+            segment_frame, text=f"📊  {app.t('Төсөв ба Бодит гүйцэтгэл')}",
+            command=lambda: self._set_mode("variance"), style="Primary.TButton",
+        )
+        self.btn_seg_variance.pack(side="left", padx=(0, 4))
+
+        self.btn_seg_mgmt = ttk.Button(
+            segment_frame, text=f"⚙  {app.t('Төсөв тохируулах')}",
+            command=lambda: self._set_mode("management"),
+        )
+        self.btn_seg_mgmt.pack(side="left", padx=4)
+
+        ttk.Separator(top_bar, orient="vertical").pack(side="left", fill="y", padx=10)
 
         # Month navigation controls
-        ttk.Label(nav_frame, text=app.t("Selected month") + ":", font=("Segoe UI", 10, "bold")).pack(side="left", padx=(0, 6))
+        ttk.Label(top_bar, text=app.t("Selected month") + ":", font=("Segoe UI", 9, "bold")).pack(side="left", padx=(4, 6))
 
-        prev_btn = ttk.Button(nav_frame, text="◀", width=3, command=self._prev_month)
+        prev_btn = ttk.Button(top_bar, text="◀", width=3, command=self._prev_month)
         prev_btn.pack(side="left", padx=2)
 
         self.month_var = tk.StringVar(value=datetime.now().strftime("%Y-%m"))
-        self.month_entry = ttk.Entry(nav_frame, textvariable=self.month_var, width=10, font=("Segoe UI", 10))
+        self.month_entry = ttk.Entry(top_bar, textvariable=self.month_var, width=10, font=("Segoe UI", 10))
         self.month_entry.pack(side="left", padx=2)
         self.month_entry.bind("<Return>", lambda _: self.load())
 
-        next_btn = ttk.Button(nav_frame, text="▶", width=3, command=self._next_month)
+        next_btn = ttk.Button(top_bar, text="▶", width=3, command=self._next_month)
         next_btn.pack(side="left", padx=2)
 
-        this_month_btn = ttk.Button(nav_frame, text=app.t("This month"), command=self._this_month)
+        this_month_btn = ttk.Button(top_bar, text=app.t("This month"), command=self._this_month)
         this_month_btn.pack(side="left", padx=4)
 
         # Filters
-        ttk.Separator(nav_frame, orient="vertical").pack(side="left", fill="y", padx=8)
-
-        ttk.Label(nav_frame, text=app.t("Currency") + ":").pack(side="left", padx=(4, 2))
+        ttk.Label(top_bar, text=app.t("Currency") + ":").pack(side="left", padx=(8, 2))
         self.currency_var = tk.StringVar(value=app.t("All currencies"))
         self.currency_combo = ttk.Combobox(
-            nav_frame, textvariable=self.currency_var, state="readonly", width=14,
+            top_bar, textvariable=self.currency_var, state="readonly", width=14,
             values=(app.t("All currencies"), "MNT", "USD", "EUR"),
         )
         self.currency_combo.pack(side="left", padx=3)
         self.currency_combo.bind("<<ComboboxSelected>>", lambda _: self.load())
 
-        ttk.Label(nav_frame, text=app.t("Direction") + ":").pack(side="left", padx=(6, 2))
+        ttk.Label(top_bar, text=app.t("Direction") + ":").pack(side="left", padx=(6, 2))
         self.direction_var = tk.StringVar(value=app.t("All directions"))
         self.direction_combo = ttk.Combobox(
-            nav_frame, textvariable=self.direction_var, state="readonly", width=14,
+            top_bar, textvariable=self.direction_var, state="readonly", width=14,
             values=(app.t("All directions"), app.t("Expense"), app.t("Income")),
         )
         self.direction_combo.pack(side="left", padx=3)
         self.direction_combo.bind("<<ComboboxSelected>>", lambda _: self.load())
 
-        ttk.Label(nav_frame, text=app.t("Active status") + ":").pack(side="left", padx=(6, 2))
         self.active_var = tk.StringVar(value=app.t("All rules"))
         self.active_combo = ttk.Combobox(
-            nav_frame, textvariable=self.active_var, state="readonly", width=12,
+            top_bar, textvariable=self.active_var, state="readonly", width=12,
             values=(app.t("All rules"), app.t("Active"), app.t("Disabled")),
         )
-        self.active_combo.pack(side="left", padx=3)
-        self.active_combo.bind("<<ComboboxSelected>>", lambda _: self.load())
 
         # ---------------------------------------------------------------------
-        # Row 1: Action Toolbar
+        # Row 1: Action Toolbar (under Management mode)
         # ---------------------------------------------------------------------
-        action_frame = ttk.Frame(self.tab)
-        action_frame.grid(row=1, column=0, sticky="ew", pady=(0, 6))
+        self.action_frame = ttk.Frame(self.tab)
+        self.action_frame.grid(row=1, column=0, sticky="ew", pady=(0, 6))
 
-        self.btn_add = ttk.Button(action_frame, text=f"➕  {app.t('Add budget')}", command=self.add_budget)
+        self.btn_add = ttk.Button(self.action_frame, text=f"➕  {app.t('Add budget')}", command=self.add_budget)
         self.btn_add.pack(side="left", padx=3)
 
-        self.btn_edit = ttk.Button(action_frame, text=f"✏  {app.t('Edit budget')}", command=self.edit_budget)
+        self.btn_edit = ttk.Button(self.action_frame, text=f"✏  {app.t('Edit budget')}", command=self.edit_budget)
         self.btn_edit.pack(side="left", padx=3)
 
-        self.btn_toggle = ttk.Button(action_frame, text=f"⚡  {app.t('Enable / disable')}", command=self.toggle_budget)
+        self.btn_toggle = ttk.Button(self.action_frame, text=f"⚡  {app.t('Enable / disable')}", command=self.toggle_budget)
         self.btn_toggle.pack(side="left", padx=3)
 
-        self.btn_delete = ttk.Button(action_frame, text=f"🗑  {app.t('Delete budget')}", command=self.delete_budget)
+        self.btn_delete = ttk.Button(self.action_frame, text=f"🗑  {app.t('Delete budget')}", command=self.delete_budget)
         self.btn_delete.pack(side="left", padx=3)
 
-        self.btn_refresh = ttk.Button(action_frame, text=f"🔄  {app.t('Refresh')}", command=self.load)
+        self.btn_refresh = ttk.Button(self.action_frame, text=f"🔄  {app.t('Refresh')}", command=self.load)
         self.btn_refresh.pack(side="left", padx=3)
 
         # ---------------------------------------------------------------------
-        # Row 2: Summary Cards Frame
+        # Row 2: KPI Summary Cards Frame
         # ---------------------------------------------------------------------
         self.summary_frame = ttk.Frame(self.tab)
         self.summary_frame.grid(row=2, column=0, sticky="ew", pady=(0, 8))
 
+        # Variables for variance cards
+        self.var_budget = tk.StringVar(value="—")
+        self.var_actual = tk.StringVar(value="—")
+        self.var_variance = tk.StringVar(value="—")
+        self.var_pct = tk.StringVar(value="—")
+
+        # Variables for management cards
         self.summary_expense_var = tk.StringVar(value="—")
         self.summary_income_var = tk.StringVar(value="—")
         self.summary_count_var = tk.StringVar(value="0")
 
+        # Variance KPI Cards
+        self.card_var_budget = self._create_card(self.summary_frame, "ТӨСӨВ (Budget)", self.var_budget, 0)
+        self.card_var_actual = self._create_card(self.summary_frame, "БОДИТ (Actual)", self.var_actual, 1)
+        self.card_var_variance = self._create_card(self.summary_frame, "ЗӨРҮҮ (Variance)", self.var_variance, 2)
+        self.card_var_pct = self._create_card(self.summary_frame, "% БИЕЛЭЛТ (Execution)", self.var_pct, 3)
+
+        # Management Cards (shown in management mode)
         self.card_expense = self._create_card(self.summary_frame, app.t("Planned Expense"), self.summary_expense_var, 0, color="expense")
         self.card_income = self._create_card(self.summary_frame, app.t("Planned Income"), self.summary_income_var, 1, color="income")
         self.card_count = self._create_card(self.summary_frame, app.t("Total"), self.summary_count_var, 2)
 
         # ---------------------------------------------------------------------
-        # Row 3: PagedTable
+        # Row 3: Main Content Area (Chart + Table)
         # ---------------------------------------------------------------------
-        self.table = table_factory(self.tab, [
+        self.content_container = ttk.Frame(self.tab)
+        self.content_container.grid(row=3, column=0, sticky="nsew")
+        self.content_container.columnconfigure(0, weight=1)
+        self.content_container.rowconfigure(1, weight=1)
+
+        # Variance Chart
+        self.variance_chart = VarianceCanvas(self.content_container, translate=self.app.t, min_height=180)
+        self.variance_chart.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+
+        # Variance Table
+        self.variance_table = table_factory(self.content_container, [
+            ("id", "ID", 45),
+            ("category", "Category", 230),
+            ("direction", "Direction", 80),
+            ("currency", "Currency", 70),
+            ("planned", "ТӨСӨВ (Budget)", 135),
+            ("actual", "БОДИТ (Actual)", 135),
+            ("variance", "ЗӨРҮҮ (Variance)", 140),
+            ("pct", "% Биелэлт", 90),
+            ("status", "Төлөв", 110),
+            ("count", "Гүйлгээ", 75),
+        ], title="Төсөв ба Бодит гүйцэтгэлийн шинжилгээ", height=10)
+        self.variance_table.grid(row=1, column=0, sticky="nsew")
+
+        # Management Table (PagedTable for CRUD)
+        self.table = table_factory(self.content_container, [
             ("id", "ID", 45),
             ("month", "Month", 85),
             ("currency", "Currency", 75),
@@ -300,15 +501,57 @@ class BudgetView:
             ("active", "Active status", 85),
             ("note", "Budget note", 200),
         ], title="Monthly Budget", height=14)
-        self.table.grid(row=3, column=0, sticky="nsew")
         self.table.tree.bind("<<TreeviewSelect>>", lambda _: self.sync())
 
         # ---------------------------------------------------------------------
-        # Row 4: Status / Empty state banner
+        # Row 4: Status Label
         # ---------------------------------------------------------------------
         self.status = tk.StringVar(value="")
         self.status_label = ttk.Label(self.tab, textvariable=self.status, wraplength=1000)
         self.status_label.grid(row=4, column=0, sticky="w", pady=(4, 0))
+
+        # Apply initial mode
+        self._set_mode("variance")
+        self.sync()
+
+    def _set_mode(self, mode: str):
+        self.mode = mode
+        if mode == "variance":
+            self.btn_seg_variance.configure(style="Primary.TButton")
+            self.btn_seg_mgmt.configure(style="TButton")
+            self.action_frame.grid_remove()
+
+            # Show variance cards, hide management cards
+            self.card_var_budget.grid()
+            self.card_var_actual.grid()
+            self.card_var_variance.grid()
+            self.card_var_pct.grid()
+            self.card_expense.grid_remove()
+            self.card_income.grid_remove()
+            self.card_count.grid_remove()
+
+            # Show chart & variance table, hide management table
+            self.variance_chart.grid()
+            self.variance_table.grid()
+            self.table.grid_remove()
+        else:
+            self.btn_seg_variance.configure(style="TButton")
+            self.btn_seg_mgmt.configure(style="Primary.TButton")
+            self.action_frame.grid()
+
+            # Show management cards, hide variance cards
+            self.card_var_budget.grid_remove()
+            self.card_var_actual.grid_remove()
+            self.card_var_variance.grid_remove()
+            self.card_var_pct.grid_remove()
+            self.card_expense.grid()
+            self.card_income.grid()
+            self.card_count.grid()
+
+            # Show management table, hide variance table & chart
+            self.variance_chart.grid_remove()
+            self.variance_table.grid_remove()
+            self.table.grid(row=1, column=0, sticky="nsew")
 
         self.sync()
 
@@ -317,7 +560,7 @@ class BudgetView:
         frame = ttk.Frame(parent, padding=(12, 8), style="Card.TFrame")
         frame.grid(row=0, column=column, padx=4, sticky="nsew")
         ttk.Label(frame, text=title, font=("Segoe UI", 9), style="CardTitle.TLabel").pack(anchor="w")
-        val_label = ttk.Label(frame, textvariable=text_var, font=("Segoe UI", 13, "bold"), style="CardValue.TLabel")
+        val_label = ttk.Label(frame, textvariable=text_var, font=("Segoe UI", 12, "bold"), style="CardValue.TLabel")
         if color == "expense":
             val_label.configure(foreground="#ef4444")
         elif color == "income":
@@ -350,11 +593,10 @@ class BudgetView:
         self.app._enabled(self.btn_refresh, idle)
 
     def sync_categories(self):
-        """Called when categories are added, modified or deleted."""
         pass
 
     def load(self):
-        """Request budgets and summary from the worker."""
+        """Request budgets and variance analysis from the worker."""
         if not self.app.ready or self.app.busy:
             return
 
@@ -382,7 +624,9 @@ class BudgetView:
         elif state_src == "Disabled":
             active = False
 
+        # Request both management list and variance analysis
         self.app._request("budget_list", month=month, currency=currency, direction=direction, active=active)
+        self.app._request("budget_variance", month=month, currency=currency, direction=direction)
 
     def add_budget(self):
         curr_src = source_text(self.currency_var.get(), ("All currencies",))
@@ -430,12 +674,70 @@ class BudgetView:
             self.app._request("budget_delete", budget_id=budget["id"])
 
     def handle(self, operation: str, payload):
-        """Handle worker events for budget operations."""
-        if operation == "budget_list":
+        """Handle worker events for budget and variance operations."""
+        if operation == "budget_variance":
+            self.variance_items = payload.get("items", [])
+            self.variance_totals = payload.get("totals", {})
+
+            # Format rows for variance table
+            def format_var_row(it):
+                cat_disp = self.app.category_display_name(it["category_id"]) if it.get("category_id") else it.get("category_name", "Бусад")
+                dir_label = self.app.t("Expense" if it["direction"] == "expense" else "Income")
+                var_val = it["variance_minor"]
+                sign = "+" if var_val > 0 else ""
+                var_str = f"{sign}{format_money(var_val, it['currency'])}"
+                return (
+                    it.get("budget_id") or "-",
+                    cat_disp,
+                    dir_label,
+                    it["currency"],
+                    format_money(it["planned_minor"], it["currency"]),
+                    format_money(it["actual_minor"], it["currency"]),
+                    var_str,
+                    f"{it['utilization_pct']:.1f}%",
+                    self.app.t(it.get("status_label", "")),
+                    str(it.get("transaction_count", 0)),
+                )
+
+            self.variance_table.set_items(self.variance_items, format_var_row)
+            self.variance_chart.render(self.variance_items)
+
+            # Update variance KPI cards
+            curr_src = source_text(self.currency_var.get(), ("All currencies",))
+            target_totals = None
+            if curr_src != "All currencies" and curr_src in self.variance_totals:
+                target_totals = self.variance_totals[curr_src]
+            elif len(self.variance_totals) == 1:
+                target_totals = next(iter(self.variance_totals.values()))
+
+            if target_totals:
+                c = target_totals["currency"]
+                # Default to expense comparison
+                self.var_budget.set(format_money(target_totals["expense_budget"], c))
+                self.var_actual.set(format_money(target_totals["expense_actual"], c))
+                v = target_totals["expense_variance"]
+                v_sign = "+" if v > 0 else ""
+                self.var_variance.set(f"{v_sign}{format_money(v, c)}")
+                self.var_pct.set(f"{target_totals['expense_pct']:.1f}%")
+            elif len(self.variance_totals) > 1:
+                # Multiple currencies summary
+                b_strs = [format_money(t["expense_budget"], c) for c, t in sorted(self.variance_totals.items())]
+                a_strs = [format_money(t["expense_actual"], c) for c, t in sorted(self.variance_totals.items())]
+                self.var_budget.set(" | ".join(b_strs))
+                self.var_actual.set(" | ".join(a_strs))
+                self.var_variance.set(f"{len(self.variance_items)} ангилал")
+                self.var_pct.set("Бүх валют")
+            else:
+                self.var_budget.set("—")
+                self.var_actual.set("—")
+                self.var_variance.set("—")
+                self.var_pct.set("—")
+
+        elif operation == "budget_list":
             self.budgets = payload.get("budgets", [])
             self.summary = payload.get("summary", {})
 
-            # Format rows for PagedTable
+            # Format rows for Management PagedTable
             def format_row(b):
                 cat_disp = self.app.category_display_name(b["category_id"])
                 dir_label = self.app.t("Expense" if b.get("category_direction") == "expense" else "Income")
@@ -453,7 +755,7 @@ class BudgetView:
 
             self.table.set_items(self.budgets, format_row)
 
-            # Update summary cards
+            # Update management summary cards
             curr_src = source_text(self.currency_var.get(), ("All currencies",))
             if curr_src != "All currencies" and curr_src in self.summary:
                 info = self.summary[curr_src]
@@ -467,7 +769,6 @@ class BudgetView:
                 self.summary_income_var.set(format_money(info["planned_income"], curr))
                 self.summary_count_var.set(str(len(self.budgets)))
             elif len(self.summary) > 1:
-                # Multiple currencies summary
                 exp_strs = [format_money(s["planned_expense"], c) for c, s in sorted(self.summary.items())]
                 inc_strs = [format_money(s["planned_income"], c) for c, s in sorted(self.summary.items())]
                 self.summary_expense_var.set(" | ".join(exp_strs))
@@ -478,7 +779,6 @@ class BudgetView:
                 self.summary_income_var.set("—")
                 self.summary_count_var.set("0")
 
-            # Update empty-state or count in status
             if not self.budgets:
                 self.status.set(self.app.t("No budgets found for this month."))
             else:

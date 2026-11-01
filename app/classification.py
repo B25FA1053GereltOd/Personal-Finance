@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from app.db import Repository, classification_revision
 from app.mapping_service import MappingBlocked, MappingService
+from app.memory_service import MemoryService
 from app.models import MerchantMatch, RuleSelection, normalize_merchant_key, require_integer
 
 
@@ -90,6 +91,7 @@ class ClassificationService:
         self.repository = repository
         self.extractor = extractor
         self.mappings = MappingService(repository)
+        self.memory_service = MemoryService(repository)
         self._pending: dict[str, RulePreview] = {}
 
     def _merchant(self, row: dict) -> MerchantMatch | None:
@@ -142,7 +144,15 @@ class ClassificationService:
                         reason: str = "Manual category assignment") -> int:
         """Transaction-only is the default: assign selected rows, lock, save no rule."""
         try:
-            return self.repository.assign_categories(transaction_ids, category_id, reason=reason)
+            count = self.repository.assign_categories(transaction_ids, category_id, reason=reason)
+            if category_id is not None:
+                for tid in transaction_ids:
+                    try:
+                        row = self.repository.get_transaction(tid)
+                        self.memory_service.save_memory_from_transaction(row, category_id)
+                    except Exception:
+                        pass
+            return count
         except sqlite3.Error:
             raise ClassificationBlocked("Category assignment failed; no selected rows were changed.") from None
 
@@ -179,6 +189,7 @@ class ClassificationService:
         except MappingBlocked:
             raise ClassificationBlocked("Mapping classification failed; the import was not committed.") from None
         self.repository.classify_import(import_id, merchants)
+        self.memory_service.classify_import(import_id)
 
     def preview_rule(self, rule_id: int) -> RulePreview:
         rule = self.repository.get_rule(rule_id)

@@ -277,6 +277,40 @@ _ARCHIVE_SCHEMA = (
     "CREATE INDEX IF NOT EXISTS transactions_archived ON transactions(is_archived, occurred_at DESC, id DESC)",
 )
 
+_MEMORY_SCHEMA = (
+    """CREATE TABLE IF NOT EXISTS classification_memory (
+        id INTEGER PRIMARY KEY,
+        match_field TEXT NOT NULL CHECK(match_field IN ('pos_id', 'merchant', 'description')),
+        match_value TEXT NOT NULL CHECK(length(trim(match_value)) > 0),
+        normalized_value TEXT NOT NULL CHECK(length(trim(normalized_value)) > 0),
+        direction TEXT NOT NULL CHECK(direction IN ('any', 'debit', 'credit')),
+        bank TEXT,
+        account_id INTEGER REFERENCES accounts(id),
+        category_id INTEGER NOT NULL REFERENCES categories(id),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        usage_count INTEGER NOT NULL DEFAULT 0 CHECK(usage_count >= 0)
+    ) STRICT""",
+    "CREATE INDEX IF NOT EXISTS memory_lookup ON classification_memory(match_field, normalized_value, direction)",
+    "CREATE INDEX IF NOT EXISTS memory_scope ON classification_memory(bank, account_id)",
+    """CREATE TABLE IF NOT EXISTS time_suggestion_rules (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL CHECK(length(trim(name)) > 0),
+        weekdays TEXT NOT NULL,
+        start_time TEXT NOT NULL CHECK(start_time GLOB '[0-2][0-9]:[0-5][0-9]'),
+        end_time TEXT NOT NULL CHECK(end_time GLOB '[0-2][0-9]:[0-5][0-9]'),
+        match_field TEXT CHECK(match_field IN ('pos_id', 'merchant', 'description')),
+        match_value TEXT,
+        target_kind TEXT NOT NULL DEFAULT 'expense' CHECK(target_kind IN ('income', 'expense')),
+        category_id INTEGER NOT NULL REFERENCES categories(id),
+        confidence TEXT NOT NULL DEFAULT 'medium' CHECK(confidence IN ('high', 'medium', 'low')),
+        auto_classify INTEGER NOT NULL DEFAULT 0 CHECK(auto_classify IN (0, 1)),
+        active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    ) STRICT""",
+)
+
 
 class ImportStateChanged(ValueError):
     """An import preview must be refreshed before confirmation."""
@@ -462,6 +496,10 @@ class Repository:
                 if "archived_at" not in columns:
                     self._connection.execute("ALTER TABLE transactions ADD COLUMN archived_at TEXT")
                 self._connection.execute("CREATE INDEX IF NOT EXISTS transactions_archived ON transactions(is_archived, occurred_at DESC, id DESC)")
+                if "applied_memory_id" not in columns:
+                    self._connection.execute("ALTER TABLE transactions ADD COLUMN applied_memory_id INTEGER")
+                for statement in _MEMORY_SCHEMA:
+                    self._connection.execute(statement)
                 return
             if version in (1, 2, 3):
                 if version == 1:
@@ -488,6 +526,10 @@ class Repository:
                     if "archived_at" not in columns:
                         self._connection.execute("ALTER TABLE transactions ADD COLUMN archived_at TEXT")
                     self._connection.execute("CREATE INDEX IF NOT EXISTS transactions_archived ON transactions(is_archived, occurred_at DESC, id DESC)")
+                if "applied_memory_id" not in columns:
+                    self._connection.execute("ALTER TABLE transactions ADD COLUMN applied_memory_id INTEGER")
+                for statement in _MEMORY_SCHEMA:
+                    self._connection.execute(statement)
 
 
                 self._connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
@@ -533,6 +575,11 @@ class Repository:
                 for statement in _BUDGET_SCHEMA:
                     self._connection.execute(statement)
                 for statement in _ARCHIVE_SCHEMA:
+                    self._connection.execute(statement)
+                columns = {row["name"] for row in self._rows("PRAGMA table_info(transactions)")}
+                if "applied_memory_id" not in columns:
+                    self._connection.execute("ALTER TABLE transactions ADD COLUMN applied_memory_id INTEGER")
+                for statement in _MEMORY_SCHEMA:
                     self._connection.execute(statement)
             self._connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
@@ -730,7 +777,9 @@ class Repository:
 
     @staticmethod
     def _normalize_transaction(row: dict) -> dict:
-        if row.get("applied_mapping_rule_id") is not None and row.get("classification_source") == "rule":
+        if row.get("applied_memory_id") is not None:
+            row["classification_source"] = "manual_memory"
+        elif row.get("applied_mapping_rule_id") is not None and row.get("classification_source") == "rule":
             row["classification_source"] = "mapping_rule"
         return row
 
@@ -1488,3 +1537,271 @@ class Repository:
                 ids,
             )
             return cur.rowcount
+
+    # -------------------------------------------------------------------------
+    # Local Classification Memory
+    # -------------------------------------------------------------------------
+
+    def save_classification_memory(self, *, match_field: str, match_value: str,
+                                   category_id: int, direction: str = "any",
+                                   bank: str | None = None, account_id: int | None = None) -> int:
+        if match_field not in ("pos_id", "merchant", "description"):
+            raise ValueError("Match field must be pos_id, merchant, or description.")
+        require_text(match_value, "Match value")
+        require_integer(category_id, "Category ID", 1)
+        if direction not in ("any", "debit", "credit"):
+            raise ValueError("Direction must be any, debit, or credit.")
+        if account_id is not None:
+            require_integer(account_id, "Account ID", 1)
+        if bank is not None:
+            require_text(bank, "Bank", allow_empty=True)
+            if not bank.strip():
+                bank = None
+        normalized = normalize_merchant_key(match_value)
+        now = _now()
+        with self._write():
+            where = "match_field = ? AND normalized_value = ? AND direction = ?"
+            params = [match_field, normalized, direction]
+            if bank is not None:
+                where += " AND bank = ?"
+                params.append(bank)
+            else:
+                where += " AND bank IS NULL"
+            if account_id is not None:
+                where += " AND account_id = ?"
+                params.append(account_id)
+            else:
+                where += " AND account_id IS NULL"
+
+            existing = self._rows(f"SELECT id FROM classification_memory WHERE {where}", tuple(params))
+            if existing:
+                mem_id = existing[0]["id"]
+                self._connection.execute(
+                    "UPDATE classification_memory SET category_id = ?, match_value = ?, updated_at = ? WHERE id = ?",
+                    (category_id, match_value, now, mem_id),
+                )
+                return mem_id
+            else:
+                cur = self._connection.execute(
+                    """INSERT INTO classification_memory(
+                        match_field, match_value, normalized_value, direction,
+                        bank, account_id, category_id, created_at, updated_at, usage_count
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)""",
+                    (match_field, match_value, normalized, direction, bank, account_id, category_id, now, now),
+                )
+                return cur.lastrowid
+
+    def list_classification_memories(self, *, search: str = "", bank: str | None = None,
+                                     account_id: int | None = None) -> list[dict]:
+        conditions, parameters = [], []
+        if bank is not None:
+            conditions.append("(bank = ? OR bank IS NULL)")
+            parameters.append(bank)
+        if account_id is not None:
+            conditions.append("(account_id = ? OR account_id IS NULL)")
+            parameters.append(account_id)
+        if search:
+            conditions.append("(instr(unicode_casefold(match_value), unicode_casefold(?)) > 0 "
+                              "OR instr(unicode_casefold(normalized_value), unicode_casefold(?)) > 0)")
+            parameters.extend([search, search])
+        where = " WHERE " + " AND ".join(conditions) if conditions else ""
+        sql = (
+            "SELECT m.*, c.name AS category_name, c.direction AS category_direction "
+            "FROM classification_memory m JOIN categories c ON c.id = m.category_id"
+            + where +
+            " ORDER BY m.usage_count DESC, m.updated_at DESC, m.id DESC"
+        )
+        return self._rows(sql, tuple(parameters))
+
+    def get_classification_memory(self, memory_id: int) -> dict:
+        require_integer(memory_id, "Memory ID", 1)
+        sql = (
+            "SELECT m.*, c.name AS category_name, c.direction AS category_direction "
+            "FROM classification_memory m JOIN categories c ON c.id = m.category_id WHERE m.id = ?"
+        )
+        rows = self._rows(sql, (memory_id,))
+        if not rows:
+            raise ValueError(f"No memory record with ID {memory_id}.")
+        return rows[0]
+
+    def delete_classification_memory(self, memory_id: int) -> None:
+        require_integer(memory_id, "Memory ID", 1)
+        with self._write():
+            self._connection.execute("DELETE FROM classification_memory WHERE id = ?", (memory_id,))
+
+    def increment_memory_usage(self, memory_id: int) -> None:
+        require_integer(memory_id, "Memory ID", 1)
+        with self._write():
+            self._connection.execute(
+                "UPDATE classification_memory SET usage_count = usage_count + 1, updated_at = ? WHERE id = ?",
+                (_now(), memory_id),
+            )
+
+    def match_classification_memory(self, row: dict, merchant_key: str | None = None) -> dict | None:
+        """Find the winning local classification memory rule for a transaction row."""
+        if row.get("manual_lock") or (row.get("kind") != "unclassified" and row.get("category_id") is not None):
+            return None
+        direction = "debit" if row["amount_minor"] < 0 else "credit" if row["amount_minor"] > 0 else "zero"
+        bank = row.get("bank")
+        account_id = row.get("account_id")
+
+        memories = self._rows(
+            "SELECT m.*, c.direction AS category_direction, c.name AS category_name FROM classification_memory m "
+            "JOIN categories c ON c.id = m.category_id "
+            "WHERE m.direction IN ('any', ?) "
+            "ORDER BY CASE m.match_field WHEN 'pos_id' THEN 0 WHEN 'merchant' THEN 1 ELSE 2 END, "
+            "CASE WHEN m.account_id IS NOT NULL THEN 0 WHEN m.bank IS NOT NULL THEN 1 ELSE 2 END, "
+            "m.usage_count DESC, m.id ASC",
+            (direction,),
+        )
+
+        row_pos = normalize_merchant_key(str(row.get("pos_id") or "")) if row.get("pos_id") else None
+        m_val = merchant_key or row.get("merchant_key") or row.get("merchant_display")
+        row_merchant = normalize_merchant_key(str(m_val or "")) if m_val else None
+        desc_val = str(row.get("original_description") or row.get("description") or "")
+        row_desc = normalize_merchant_key(desc_val)
+
+        if row_merchant and bank:
+            disabled = self._rows(
+                "SELECT 1 FROM merchant_rules WHERE bank = ? AND merchant_key = ? AND direction = ? AND active = 0",
+                (bank, row_merchant, direction),
+            )
+            if disabled:
+                return None
+
+        for mem in memories:
+            if mem["category_direction"] != ("expense" if direction == "debit" else "income"):
+                continue
+            if mem["bank"] is not None and mem["bank"] != bank:
+                continue
+            if mem["account_id"] is not None and mem["account_id"] != account_id:
+                continue
+
+            field = mem["match_field"]
+            target = mem["normalized_value"]
+
+            if field == "pos_id" and row_pos and row_pos == target:
+                return mem
+            if field == "merchant" and row_merchant and row_merchant == target:
+                return mem
+            if field == "description" and row_desc:
+                if target == row_desc:
+                    return mem
+                if " " not in target:
+                    words = row_desc.split()
+                    if target in words:
+                        return mem
+                elif target in row_desc:
+                    return mem
+        return None
+
+    def apply_memory_classification(self, transaction_id: int, memory_id: int) -> dict:
+        """Apply memory classification to an unlocked, unclassified transaction."""
+        require_integer(transaction_id, "Transaction ID", 1)
+        require_integer(memory_id, "Memory ID", 1)
+        with self._write():
+            tx = self.get_transaction(transaction_id)
+            if tx.get("manual_lock"):
+                raise ValueError("Cannot classify a manually protected transaction.")
+            memory = self.get_classification_memory(memory_id)
+            kind = memory["category_direction"]
+            now = _now()
+            delta = {
+                "category_id": {"old": tx.get("category_id"), "new": memory["category_id"]},
+                "kind": {"old": tx.get("kind"), "new": kind},
+                "classification_source": {"old": tx.get("classification_source"), "new": "manual_memory"},
+                "applied_memory_id": {"old": tx.get("applied_memory_id"), "new": memory_id},
+            }
+            self._connection.execute(
+                "UPDATE transactions SET category_id = ?, kind = ?, classification_source = 'rule', "
+                "applied_memory_id = ? WHERE id = ?",
+                (memory["category_id"], kind, memory_id, transaction_id),
+            )
+            self._connection.execute(
+                "INSERT INTO transaction_edits(transaction_id, edited_at, reason, changes_json) VALUES (?, ?, ?, ?)",
+                (transaction_id, now, "Local classification memory applied", json.dumps(delta, ensure_ascii=False)),
+            )
+            self._connection.execute(
+                "UPDATE classification_memory SET usage_count = usage_count + 1, updated_at = ? WHERE id = ?",
+                (now, memory_id),
+            )
+            return self.get_transaction(transaction_id)
+
+    # -------------------------------------------------------------------------
+    # Time-based Suggestion Rules
+    # -------------------------------------------------------------------------
+
+    def save_time_rule(self, *, name: str, weekdays, start_time: str, end_time: str,
+                       category_id: int, match_field: str | None = None, match_value: str | None = None,
+                       target_kind: str = "expense", confidence: str = "medium", auto_classify: bool = False,
+                       active: bool = True, rule_id: int | None = None) -> int:
+        require_text(name, "Rule name")
+        require_integer(category_id, "Category ID", 1)
+        if target_kind not in ("income", "expense"):
+            raise ValueError("Target kind must be income or expense.")
+        if confidence not in ("high", "medium", "low"):
+            raise ValueError("Confidence must be high, medium, or low.")
+        if match_field is not None and match_field not in ("pos_id", "merchant", "description"):
+            raise ValueError("Match field must be pos_id, merchant, or description.")
+        if isinstance(weekdays, (list, tuple)):
+            days_json = json.dumps(sorted(weekdays))
+        else:
+            days_json = str(weekdays)
+
+        now = _now()
+        with self._write():
+            if rule_id is not None:
+                require_integer(rule_id, "Rule ID", 1)
+                self._connection.execute(
+                    """UPDATE time_suggestion_rules SET
+                        name = ?, weekdays = ?, start_time = ?, end_time = ?,
+                        match_field = ?, match_value = ?, target_kind = ?,
+                        category_id = ?, confidence = ?, auto_classify = ?, active = ?, updated_at = ?
+                    WHERE id = ?""",
+                    (name, days_json, start_time, end_time, match_field, match_value, target_kind,
+                     category_id, confidence, int(auto_classify), int(active), now, rule_id),
+                )
+                return rule_id
+            else:
+                cur = self._connection.execute(
+                    """INSERT INTO time_suggestion_rules(
+                        name, weekdays, start_time, end_time, match_field, match_value,
+                        target_kind, category_id, confidence, auto_classify, active, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (name, days_json, start_time, end_time, match_field, match_value,
+                     target_kind, category_id, confidence, int(auto_classify), int(active), now, now),
+                )
+                return cur.lastrowid
+
+    def list_time_rules(self, *, active: bool | None = None) -> list[dict]:
+        conditions, parameters = [], []
+        if active is not None:
+            conditions.append("r.active = ?")
+            parameters.append(int(active))
+        where = " WHERE " + " AND ".join(conditions) if conditions else ""
+        sql = (
+            "SELECT r.*, c.name AS category_name, c.direction AS category_direction "
+            "FROM time_suggestion_rules r JOIN categories c ON c.id = r.category_id"
+            + where +
+            " ORDER BY r.id"
+        )
+        rows = self._rows(sql, tuple(parameters))
+        for row in rows:
+            try:
+                row["weekdays_list"] = json.loads(row["weekdays"])
+            except Exception:
+                row["weekdays_list"] = []
+        return rows
+
+    def get_time_rule(self, rule_id: int) -> dict:
+        require_integer(rule_id, "Rule ID", 1)
+        rows = self.list_time_rules()
+        for r in rows:
+            if r["id"] == rule_id:
+                return r
+        raise ValueError(f"No time suggestion rule with ID {rule_id}.")
+
+    def delete_time_rule(self, rule_id: int) -> None:
+        require_integer(rule_id, "Rule ID", 1)
+        with self._write():
+            self._connection.execute("DELETE FROM time_suggestion_rules WHERE id = ?", (rule_id,))

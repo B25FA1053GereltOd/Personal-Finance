@@ -15,6 +15,7 @@ from app.restore_service import RestoreService
 from app.export_service import ExportError, export_csv
 from app.mapping_service import MappingBlocked, MappingService
 from app.budget_service import BudgetBlocked, BudgetService
+from app.goal_service import GoalService
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,7 @@ class FinanceWorker:
             review = ReviewService(repository)
             mapping = MappingService(repository)
             budget = BudgetService(repository)
+            goal = GoalService(repository, self.database.parent)
             reporting = ReportingService(repository)
             restore = RestoreService(repository, self.database)
             self.events.put(Event("ready", {"accounts": repository.list_accounts(),
@@ -99,7 +101,7 @@ class FinanceWorker:
                         if operation not in actions:
                             raise MappingBlocked("Unsupported mapping action.")
                         result = actions[operation]()
-                    elif operation.startswith(("review_", "rule_", "edit_")):
+                    elif operation.startswith(("review_", "rule_", "edit_", "suggestion_")):
                         if preview is not None and operation not in ("review_load", "edit_get"):
                             raise ReviewBlocked("Cancel the import preview before reviewing or editing.")
                         actions = {
@@ -113,10 +115,30 @@ class FinanceWorker:
                             "rule_change": review.change_rule,
                             "edit_get": review.edit_get,
                             "edit_save": review.edit_save,
+                            "suggestion_accept": review.accept_suggestion,
+                            "suggestion_reject": review.reject_suggestion,
+                            "suggestion_edit": review.edit_suggestion,
                         }
                         if operation not in actions:
                             raise ReviewBlocked("Unsupported review action.")
                         result = actions[operation](**payload)
+                    elif operation.startswith("time_rule_"):
+                        actions = {
+                            "time_rule_list": lambda: repository.list_time_rules(**payload),
+                            "time_rule_save": lambda: repository.save_time_rule(**payload),
+                            "time_rule_delete": lambda: repository.delete_time_rule(**payload),
+                        }
+                        if operation not in actions:
+                            raise ReviewBlocked("Unsupported time rule action.")
+                        result = actions[operation]()
+                    elif operation.startswith("memory_"):
+                        actions = {
+                            "memory_list": lambda: repository.list_classification_memories(**payload),
+                            "memory_delete": lambda: repository.delete_classification_memory(**payload),
+                        }
+                        if operation not in actions:
+                            raise ReviewBlocked("Unsupported memory action.")
+                        result = actions[operation]()
                     elif operation == "account":
                         if preview is not None:
                             raise ImportBlocked("Cancel the current preview before adding an account.")
@@ -164,8 +186,12 @@ class FinanceWorker:
                         restore.cancel()
                         result = None
                     elif operation == "export_csv":
-                        result = export_csv(repository, payload["path"], payload.get("filters", {}),
-                                            language=payload.get("language"))
+                        result = export_csv(
+                            repository, payload["path"], payload.get("filters", {}),
+                            language=payload.get("language"),
+                            format=payload.get("format"),
+                            confirm_overwrite=payload.get("confirm_overwrite", False),
+                        )
                     elif operation == "category_add":
                         try:
                             repository.create_category(payload["name"], payload["direction"])
@@ -196,10 +222,15 @@ class FinanceWorker:
                             "budget_active": lambda: budget.toggle_active(**payload),
                             "budget_delete": lambda: budget.delete_budget(**payload),
                             "budget_summary": lambda: budget.get_summary(**payload),
+                            "budget_variance": lambda: budget.variance_analysis(**payload),
                         }
                         if operation not in actions:
                             raise BudgetBlocked("Unsupported budget action.")
                         result = actions[operation]()
+                    elif operation == "goal_analysis":
+                        result = goal.calculate_apartment_goal(**payload)
+                    elif operation == "goal_save_params":
+                        result = goal.update_parameters(**payload)
                     elif operation == "dashboard":
                         result = reporting.summarize(**payload)
                     elif operation == "transactions_archive":

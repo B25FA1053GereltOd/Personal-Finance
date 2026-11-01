@@ -35,6 +35,32 @@ FIELDS = (
     "manual_protection",
 )
 
+TRANSACTION_FIELDS_EN = (
+    "date_time",
+    "amount",
+    "description",
+    "category",
+    "currency",
+    "bank",
+    "account",
+    "direction",
+    "classification_source",
+    "rule_name",
+)
+
+TRANSACTION_FIELDS_MN = (
+    "Хугацаа",
+    "Дүн",
+    "Гүйлгээ",
+    "Ангилал",
+    "Валют",
+    "Банк",
+    "Данс",
+    "Чиглэл",
+    "Ангилсан эх үүсвэр",
+    "Ангиллын дүрэм",
+)
+
 
 def spreadsheet_text(value):
     """Neutralize text that spreadsheet programs could execute as a formula."""
@@ -46,25 +72,46 @@ def spreadsheet_text(value):
     )
 
 
-def export_csv(repository, path, filters, translate=None, language=None):
-    """Export all matching rows under one read snapshot; refuse overwrites."""
-    target, owned, complete = Path(path), False, False
+def export_csv(repository, path, filters, translate=None, language=None, format=None, confirm_overwrite=False):
+    """Export all matching rows under one read snapshot; refuse unconfirmed overwrites."""
+    target = Path(path)
+    owned, complete = False, False
+    temp_target = None
     try:
         if target.suffix.lower() != ".csv":
             raise ExportError("Choose a new filename ending in .csv.")
+        if target.exists() and not confirm_overwrite:
+            raise ExportError("That export already exists. Choose a new filename; nothing was overwritten.")
+
+        if format is None:
+            format = "legacy"
+
+        if format == "transactions":
+            headers = TRANSACTION_FIELDS_MN if language == "mn" else TRANSACTION_FIELDS_EN
+        else:
+            headers = FIELDS
+
         with repository.read_snapshot():
             count = repository.count_transactions(**filters)
             if not count:
                 return ExportResult(0)
             accounts = {row["id"]: row for row in repository.list_accounts()}
             categories = {row["id"]: row["name"] for row in repository.list_categories()}
-            with target.open("x", encoding="utf-8-sig", newline="") as output:
+
+            if target.exists() and confirm_overwrite:
+                temp_target = target.with_name(f".{target.name}.tmp")
+                file_handle = temp_target.open("w", encoding="utf-8-sig", newline="")
                 owned = True
+            else:
+                file_handle = target.open("x", encoding="utf-8-sig", newline="")
+                owned = True
+
+            with file_handle as output:
                 writer = csv.writer(output, quoting=csv.QUOTE_ALL)
-                writer.writerow(FIELDS)
+                writer.writerow(headers)
                 for offset in range(0, count, 500):
                     for row in repository.query_transactions(**filters, limit=500, offset=offset):
-                        account = accounts[row["account_id"]]
+                        account = accounts.get(row["account_id"], {"name": "", "identifier": "", "bank": ""})
                         cat_name = categories.get(row["category_id"], "")
                         if cat_name:
                             if callable(translate):
@@ -73,29 +120,66 @@ def export_csv(repository, path, filters, translate=None, language=None):
                                 from app.ui.i18n import translate as i18n_translate
 
                                 cat_name = i18n_translate(cat_name, "mn")
-                        values = (
-                            row["occurred_at"],
-                            account["name"],
-                            account["identifier"],
-                            account["bank"],
-                            row["description"],
-                            row["merchant_display"] or "",
-                            str(minor_to_money(row["amount_minor"])),
-                            row["currency"],
-                            row["kind"],
-                            cat_name,
-                            row["note"],
-                            row["classification_source"],
-                            review_status(row),
-                            "protected" if row["manual_lock"] else "unlocked",
-                        )
-                        # Amount is validated numeric text; never prefix/round it.
-                        writer.writerow(
-                            [
-                                value if i == 6 else spreadsheet_text(value)
-                                for i, value in enumerate(values)
-                            ]
-                        )
+
+                        if format == "transactions":
+                            amt_minor = row["amount_minor"]
+                            if amt_minor < 0:
+                                dir_label = "Зарлага" if language == "mn" else "debit"
+                            elif amt_minor > 0:
+                                dir_label = "Орлого" if language == "mn" else "credit"
+                            else:
+                                dir_label = "Тэг" if language == "mn" else "zero"
+
+                            src = row.get("classification_source") or "unclassified"
+                            rule_name = (
+                                row.get("applied_mapping_rule_name")
+                                or (f"Rule #{row['applied_rule_id']}" if row.get("applied_rule_id")
+                                    else (f"Memory #{row['applied_memory_id']}" if row.get("applied_memory_id") else ""))
+                            )
+                            values = (
+                                row["occurred_at"],
+                                str(minor_to_money(amt_minor)),
+                                row["description"],
+                                cat_name,
+                                row["currency"],
+                                account["bank"],
+                                account["name"],
+                                dir_label,
+                                src,
+                                rule_name,
+                            )
+                            writer.writerow(
+                                [
+                                    value if i == 1 else spreadsheet_text(value)
+                                    for i, value in enumerate(values)
+                                ]
+                            )
+                        else:
+                            values = (
+                                row["occurred_at"],
+                                account["name"],
+                                account["identifier"],
+                                account["bank"],
+                                row["description"],
+                                row["merchant_display"] or "",
+                                str(minor_to_money(row["amount_minor"])),
+                                row["currency"],
+                                row["kind"],
+                                cat_name,
+                                row["note"],
+                                row["classification_source"],
+                                review_status(row),
+                                "protected" if row["manual_lock"] else "unlocked",
+                            )
+                            writer.writerow(
+                                [
+                                    value if i == 6 else spreadsheet_text(value)
+                                    for i, value in enumerate(values)
+                                ]
+                            )
+
+            if temp_target is not None:
+                temp_target.replace(target)
             complete = True
             return ExportResult(count, target)
     except ExportError:
@@ -110,7 +194,9 @@ def export_csv(repository, path, filters, translate=None, language=None):
         ) from None
     finally:
         if owned and not complete:
-            try:
-                target.unlink()
-            except OSError:
-                pass
+            for p in (temp_target, target if temp_target is None else None):
+                if p is not None:
+                    try:
+                        p.unlink()
+                    except OSError:
+                        pass

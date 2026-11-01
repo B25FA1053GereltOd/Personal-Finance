@@ -2,6 +2,7 @@
 .venv/
 __pycache__/
 *.py[cod]
+scratch/
 
 # Local finance data and backups (at any directory level)
 data/

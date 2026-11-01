@@ -227,6 +227,53 @@ class DesktopApp:
         self._sync_controls()
         self._poll_id = window.after(40, self._poll)
 
+    def _load_logo_image(self, theme_name: str, size: str = "180"):
+        try:
+            if not isinstance(self.window, (tk.Tk, tk.Toplevel)):
+                return None
+            filename = f"logo_{theme_name}_{size}.png"
+            path = Path(__file__).parent / "assets" / filename
+            if path.is_file():
+                return tk.PhotoImage(file=str(path), master=self.window)
+        except Exception:
+            pass
+        return None
+
+    def _update_logo_images(self):
+        if not hasattr(self, "_logo_refs"):
+            self._logo_refs = {}
+        theme = getattr(self, "theme", "dark")
+        # Sidebar is dark in both themes (#0c1017 in dark, #0f1f3d navy in light)
+        img_sidebar = self._load_logo_image("dark", "180")
+        img_topbar = self._load_logo_image(theme, "150")
+        if img_sidebar is not None:
+            self._logo_refs["sidebar"] = img_sidebar
+            if hasattr(self, "sidebar_logo_label"):
+                self.sidebar_logo_label.configure(image=img_sidebar, text="")
+        else:
+            if hasattr(self, "sidebar_logo_label"):
+                self.sidebar_logo_label.configure(image="", text="DUADIS B")
+        if img_topbar is not None:
+            self._logo_refs["topbar"] = img_topbar
+            if hasattr(self, "topbar_logo_label"):
+                self.topbar_logo_label.configure(image=img_topbar, text="")
+        else:
+            if hasattr(self, "topbar_logo_label"):
+                self.topbar_logo_label.configure(image="", text="DUADIS B")
+
+    def _toggle_advanced_filters(self):
+        if getattr(self, "advanced_filters_visible", False):
+            if hasattr(self, "advanced_filters_frame"):
+                self.advanced_filters_frame.grid_remove()
+            if hasattr(self, "filter_toggle_btn"):
+                self.filter_toggle_btn.configure(text="⚙  " + self.t("Advanced filters") + " ▾")
+            self.advanced_filters_visible = False
+        else:
+            if hasattr(self, "advanced_filters_frame"):
+                self.advanced_filters_frame.grid(row=1, column=0, sticky="ew", pady=(10, 0))
+            if hasattr(self, "filter_toggle_btn"):
+                self.filter_toggle_btn.configure(text="⚙  " + self.t("Advanced filters") + " ▴")
+            self.advanced_filters_visible = True
     def _build(self, data_dir):
         root = self.window
         root.title(self.t("Personal Finance Tool"))
@@ -235,30 +282,48 @@ class DesktopApp:
         root.columnconfigure(0, weight=1)
         root.rowconfigure(1, weight=1)
         apply_theme(root, self.theme)
+        self._logo_refs = {}
         top = ttk.Frame(root, padding=(18, 10), style="Topbar.TFrame")
         top.grid(row=0, column=0, sticky="ew")
-        ttk.Label(top, text="Personal Finance", style="Brand.TLabel").pack(side="left")
-        ttk.Label(top, text="Local · Offline", style="Tag.TLabel").pack(side="left", padx=(12, 0))
+        brand_left = ttk.Frame(top, style="Topbar.TFrame")
+        brand_left.pack(side="left", fill="y")
+        self.topbar_logo_label = ttk.Label(brand_left, style="TopbarLogo.TLabel")
+        self.topbar_logo_label.pack(side="left", padx=(0, 12))
+        ttk.Label(brand_left, text="|", style="TopbarDivider.TLabel").pack(side="left", padx=(0, 12))
+        ttk.Label(brand_left, text="Personal Finance", style="TopbarBrand.TLabel").pack(side="left")
+        ttk.Label(brand_left, text="●  " + self.t("Offline"), style="Tag.TLabel").pack(side="left", padx=(12, 0))
+        self.menu_button = ttk.Menubutton(top, text="⋯  " + self.t("More"), direction="below")
+        self.topbar_menu = tk.Menu(self.menu_button, tearoff=0)
+        self.topbar_menu.add_command(label="📥  " + self.t("Restore…"), command=self._restore)
+        self.topbar_menu.add_command(label="📤  " + self.t("Export CSV…"), command=self._export_csv)
+        self.topbar_menu.add_command(label="📁  " + self.t("Open data folder"), command=self._open_data_folder)
+        self.topbar_menu.add_separator()
+        self.topbar_menu.add_command(label="ℹ  " + self.t("Help / About"), command=self._about)
+        self.menu_button.configure(menu=self.topbar_menu)
+        self.menu_button.pack(side="right", padx=(6, 0))
         self.settings_button = ttk.Button(top, text="⚙  " + self.t("Settings"), command=self._settings)
-        self.settings_button.pack(side="right", padx=(5, 0))
+        self.settings_button.pack(side="right", padx=6)
         self.backup_button = ttk.Button(top, text="📦  " + self.t("Backup…"), command=self._backup, style="Primary.TButton")
-        self.backup_button.pack(side="right", padx=12)
-        self.local_buttons = []
-        for label, callback, icon in (("Restore…", self._restore, "📥"), ("Export CSV…", self._export_csv, "📤"),
-                                      ("Help / About", self._about, "ℹ"), ("Open data folder", self._open_data_folder, "📁")):
-            button = ttk.Button(top, text=f"{icon}  {self.t(label)}", command=callback)
-            button.pack(side="right", padx=3)
-            self.local_buttons.append(button)
+        self.backup_button.pack(side="right", padx=6)
+        self.local_buttons = [self.menu_button]
         shell = ttk.Frame(root)
         shell.grid(row=1, column=0, sticky="nsew")
         shell.columnconfigure(1, weight=1)
         shell.rowconfigure(0, weight=1)
-        self.sidebar = ttk.Frame(shell, style="Sidebar.TFrame", padding=(10, 18))
+        self.sidebar = ttk.Frame(shell, style="Sidebar.TFrame", padding=(12, 14))
         self.sidebar.grid(row=0, column=0, sticky="ns")
-        self.sidebar.configure(width=232)
+        self.sidebar.configure(width=245)
         self.sidebar.grid_propagate(False)
-        ttk.Label(self.sidebar, text="Personal Finance", style="SidebarTitle.TLabel",
-                  wraplength=185).pack(anchor="w", padx=8, pady=(2, 18))
+        brand_card = ttk.Frame(self.sidebar, style="SidebarBrand.TFrame", padding=(4, 6))
+        brand_card.pack(fill="x", pady=(0, 10))
+        self.sidebar_logo_label = ttk.Label(brand_card, style="SidebarLogo.TLabel", anchor="center")
+        self.sidebar_logo_label.pack(fill="x", pady=(2, 6))
+        brand_sub_row = ttk.Frame(brand_card, style="SidebarBrand.TFrame")
+        brand_sub_row.pack(fill="x", padx=4)
+        ttk.Label(brand_sub_row, text="PERSONAL FINANCE", style="SidebarSubtitle.TLabel").pack(side="left")
+        ttk.Label(brand_sub_row, text="● " + self.t("Offline"), style="SidebarBadge.TLabel").pack(side="right")
+        ttk.Separator(self.sidebar, orient="horizontal").pack(fill="x", padx=4, pady=(6, 12))
+        self._update_logo_images()
         self.nav_buttons, self.nav_tabs = [], []
         self.content = ttk.Frame(shell, padding=(22, 14, 22, 10))
         self.content.grid(row=0, column=1, sticky="nsew")
@@ -290,6 +355,7 @@ class DesktopApp:
             str(self.transactions_tab): ("Transactions", "Search, filter, inspect and edit imported transactions."),
             str(self.import_tab): ("Import statement", "Preview an XLSX statement and confirm every import decision."),
             str(self.review_views.review_tab): ("Review", "Classify unknown transactions deliberately; no category is assigned automatically."),
+            str(self.review_views.suggestions_tab): ("Suggestions", "Review and confirm AI/local classification suggestions."),
             str(self.review_views.rules_tab): ("Rules", "Manage exact merchant rules for future imports."),
             str(self.mapping_view.tab): ("Mapping Table", "Classify transactions with ordered, editable mapping rules."),
             str(self.budget_view.tab): ("Budget", "Monthly budget management by category and currency."),
@@ -299,6 +365,7 @@ class DesktopApp:
             (self.transactions_tab, "Transactions", "Search, filter, inspect and edit imported transactions.", "📋"),
             (self.import_tab, "Import statement", "Preview an XLSX statement and confirm every import decision.", "📥"),
             (self.review_views.review_tab, "Review", "Classify unknown transactions deliberately; no category is assigned automatically.", "⚖"),
+            (self.review_views.suggestions_tab, "Suggestions", "Review and confirm AI/local classification suggestions.", "✨"),
             (self.review_views.rules_tab, "Rules", "Manage exact merchant rules for future imports.", "⚡"),
             (self.mapping_view.tab, "Mapping Table", "Classify transactions with ordered, editable mapping rules.", "🏷"),
             (self.budget_view.tab, "Budget", "Monthly budget management by category and currency.", "💰"),
@@ -389,6 +456,12 @@ class DesktopApp:
         self.window.configure(background=tokens.bg)
         if hasattr(self, "sidebar"):
             self.sidebar.configure(style="Sidebar.TFrame")
+        self._update_logo_images()
+        if hasattr(self, "topbar_menu") and hasattr(tokens, "card_bg"):
+            try:
+                self.topbar_menu.configure(background=tokens.card_bg, foreground=tokens.text, activebackground=tokens.primary, activeforeground="#ffffff")
+            except Exception:
+                pass
         tables = [
             getattr(self, "transactions", None),
             getattr(self, "preview_table", None),
@@ -405,6 +478,9 @@ class DesktopApp:
             tables.append(getattr(self.mapping_view, "table", None))
         if self.budget_view is not None:
             tables.append(getattr(self.budget_view, "table", None))
+            tables.append(getattr(self.budget_view, "variance_table", None))
+            if hasattr(self.budget_view, "variance_chart"):
+                self.budget_view.variance_chart.set_theme(tokens)
         if self.dashboard is not None:
             tables.append(getattr(self.dashboard, "totals", None))
             tables.extend(self.dashboard.breakdowns.values())
@@ -686,74 +762,123 @@ class DesktopApp:
         tab = self.transactions_tab
         tab.columnconfigure(0, weight=1)
         tab.rowconfigure(2, weight=1)
-        filters = ttk.Frame(tab, style="Card.TFrame", padding=(12, 10))
+        filters = ttk.Frame(tab, style="Card.TFrame", padding=(14, 12))
         filters.grid(row=0, column=0, sticky="ew")
+        filters.columnconfigure(0, weight=1)
         self.filter_widgets = []
-        for column, label, variable in ((0, "From (YYYY-MM-DD)", self.date_from), (1, "To (YYYY-MM-DD)", self.date_to)):
-            ttk.Label(filters, text=label).grid(row=0, column=column, sticky="w", padx=4)
-            entry = ttk.Entry(filters, textvariable=variable, width=18)
-            entry.grid(row=1, column=column, sticky="ew", padx=4)
-            self.filter_widgets.append(entry)
-        ttk.Label(filters, text="Category").grid(row=0, column=2, sticky="w", padx=4)
-        self.category_box = ttk.Combobox(filters, textvariable=self.category_text, state="readonly", width=38)
-        self.category_box.grid(row=1, column=2, sticky="ew", padx=4)
-        ttk.Label(filters, text="Direction").grid(row=0, column=3, sticky="w", padx=4)
-        self.direction_box = ttk.Combobox(filters, textvariable=self.direction_text, state="readonly", width=18,
-                                           values=("All directions", "Debit", "Credit", "Zero"))
-        self.direction_box.grid(row=1, column=3, sticky="ew", padx=4)
-        self.direction_box.bind("<<ComboboxSelected>>", lambda _: self._update_browser_category_choices())
-        ttk.Label(filters, text="Merchant / description search").grid(row=2, column=0, sticky="w", padx=4, pady=(8, 0))
-        search = ttk.Entry(filters, textvariable=self.search)
-        search.grid(row=3, column=0, columnspan=2, sticky="ew", padx=4)
+        primary_row = ttk.Frame(filters, style="Card.TFrame")
+        primary_row.grid(row=0, column=0, sticky="ew")
+        primary_row.columnconfigure(0, weight=3)
+        primary_row.columnconfigure(1, weight=2)
+        primary_row.columnconfigure(2, weight=1)
+        primary_row.columnconfigure(3, weight=1)
+        primary_row.columnconfigure(4, weight=0)
+        search_box = ttk.Frame(primary_row, style="Card.TFrame")
+        search_box.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        search_box.columnconfigure(0, weight=1)
+        ttk.Label(search_box, text=self.t("Merchant / description search"), style="Muted.TLabel").grid(row=0, column=0, sticky="w")
+        search = ttk.Entry(search_box, textvariable=self.search)
+        search.grid(row=1, column=0, sticky="ew", pady=(2, 0))
         search.bind("<Return>", lambda _: self._apply_filters())
-        review = ttk.Checkbutton(filters, text="Unclassified only", variable=self.review_only)
-        review.grid(row=3, column=2, sticky="w", padx=4)
-        buttons = ttk.Frame(filters)
-        buttons.grid(row=3, column=3, sticky="ew")
-        apply = ttk.Button(buttons, text="🔄  " + self.t("Apply / refresh"), command=self._apply_filters, style="Primary.TButton")
-        apply.pack(side="left", padx=4)
-        reset = ttk.Button(buttons, text="✕  " + self.t("Reset"), command=self._reset_filters)
-        reset.pack(side="left", padx=4)
-        edit = ttk.Button(buttons, text="✏  " + self.t("Edit selected"), command=self._edit_selected)
-        self.edit_button = edit
-        edit.pack(side="left", padx=4)
-        archive = ttk.Button(buttons, text="🗑 " + self.t("Delete selected"), command=self._archive_selected)
-        self.archive_button = archive
-        archive.pack(side="left", padx=4)
-        restore = ttk.Button(buttons, text="↺  " + self.t("Restore selected"), command=self._restore_selected)
-        self.restore_button = restore
-        restore.pack(side="left", padx=4)
-        self.filter_widgets.extend((search, review, apply, reset, edit, archive, restore))
-        ttk.Label(filters, text="Currency").grid(row=4, column=0, sticky="w", padx=4)
-        self.currency_box = ttk.Combobox(filters, textvariable=self.currency_text,
-                                         values=(self.t("All currencies"),), state="readonly")
-        self.currency_box.grid(row=5, column=0, sticky="ew", padx=4)
-        self.filter_widgets.append(self.currency_box)
-        ttk.Label(filters, text="Account").grid(row=4, column=1, sticky="w", padx=4)
-        self.browser_account_box = ttk.Combobox(filters, textvariable=self.browser_account_text,
+        cat_box_frame = ttk.Frame(primary_row, style="Card.TFrame")
+        cat_box_frame.grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        cat_box_frame.columnconfigure(0, weight=1)
+        ttk.Label(cat_box_frame, text=self.t("Category"), style="Muted.TLabel").grid(row=0, column=0, sticky="w")
+        self.category_box = ttk.Combobox(cat_box_frame, textvariable=self.category_text, state="readonly")
+        self.category_box.grid(row=1, column=0, sticky="ew", pady=(2, 0))
+        from_frame = ttk.Frame(primary_row, style="Card.TFrame")
+        from_frame.grid(row=0, column=2, sticky="ew", padx=(0, 6))
+        from_frame.columnconfigure(0, weight=1)
+        ttk.Label(from_frame, text=self.t("From (YYYY-MM-DD)"), style="Muted.TLabel").grid(row=0, column=0, sticky="w")
+        from_entry = ttk.Entry(from_frame, textvariable=self.date_from, width=12)
+        from_entry.grid(row=1, column=0, sticky="ew", pady=(2, 0))
+        to_frame = ttk.Frame(primary_row, style="Card.TFrame")
+        to_frame.grid(row=0, column=3, sticky="ew", padx=(0, 8))
+        to_frame.columnconfigure(0, weight=1)
+        ttk.Label(to_frame, text=self.t("To (YYYY-MM-DD)"), style="Muted.TLabel").grid(row=0, column=0, sticky="w")
+        to_entry = ttk.Entry(to_frame, textvariable=self.date_to, width=12)
+        to_entry.grid(row=1, column=0, sticky="ew", pady=(2, 0))
+        btn_frame = ttk.Frame(primary_row, style="Card.TFrame")
+        btn_frame.grid(row=0, column=4, sticky="e", pady=(14, 0))
+        apply = ttk.Button(btn_frame, text="🔄  " + self.t("Apply / refresh"), command=self._apply_filters, style="Primary.TButton")
+        apply.pack(side="left", padx=3)
+        reset = ttk.Button(btn_frame, text="✕  " + self.t("Reset"), command=self._reset_filters)
+        reset.pack(side="left", padx=3)
+        self.filter_toggle_btn = ttk.Button(btn_frame, text="⚙  " + self.t("Advanced filters") + " ▾",
+                                             command=self._toggle_advanced_filters, style="FilterToggle.TButton")
+        self.filter_toggle_btn.pack(side="left", padx=3)
+        self.advanced_filters_frame = ttk.Frame(filters, style="Card.TFrame", padding=(0, 8))
+        self.advanced_filters_visible = False
+        for c_idx in range(6):
+            self.advanced_filters_frame.columnconfigure(c_idx, weight=1)
+        acc_frame = ttk.Frame(self.advanced_filters_frame, style="Card.TFrame")
+        acc_frame.grid(row=0, column=0, sticky="ew", padx=4)
+        acc_frame.columnconfigure(0, weight=1)
+        ttk.Label(acc_frame, text=self.t("Account"), style="Muted.TLabel").grid(row=0, column=0, sticky="w")
+        self.browser_account_box = ttk.Combobox(acc_frame, textvariable=self.browser_account_text,
                                                 values=(self.t("All accounts"),), state="readonly")
-        self.browser_account_box.grid(row=5, column=1, sticky="ew", padx=4)
-        ttk.Label(filters, text="Status / archive").grid(row=4, column=2, sticky="w", padx=4)
+        self.browser_account_box.grid(row=1, column=0, sticky="ew", pady=(2, 0))
+        bank_frame = ttk.Frame(self.advanced_filters_frame, style="Card.TFrame")
+        bank_frame.grid(row=0, column=1, sticky="ew", padx=4)
+        bank_frame.columnconfigure(0, weight=1)
+        ttk.Label(bank_frame, text=self.t("Bank"), style="Muted.TLabel").grid(row=0, column=0, sticky="w")
+        self.browser_bank_box = ttk.Combobox(bank_frame, textvariable=self.browser_bank_text,
+                                             values=(self.t("All banks"),), state="readonly")
+        self.browser_bank_box.grid(row=1, column=0, sticky="ew", pady=(2, 0))
+        curr_frame = ttk.Frame(self.advanced_filters_frame, style="Card.TFrame")
+        curr_frame.grid(row=0, column=2, sticky="ew", padx=4)
+        curr_frame.columnconfigure(0, weight=1)
+        ttk.Label(curr_frame, text=self.t("Currency"), style="Muted.TLabel").grid(row=0, column=0, sticky="w")
+        self.currency_box = ttk.Combobox(curr_frame, textvariable=self.currency_text,
+                                         values=(self.t("All currencies"),), state="readonly")
+        self.currency_box.grid(row=1, column=0, sticky="ew", pady=(2, 0))
+        dir_frame = ttk.Frame(self.advanced_filters_frame, style="Card.TFrame")
+        dir_frame.grid(row=0, column=3, sticky="ew", padx=4)
+        dir_frame.columnconfigure(0, weight=1)
+        ttk.Label(dir_frame, text=self.t("Direction"), style="Muted.TLabel").grid(row=0, column=0, sticky="w")
+        self.direction_box = ttk.Combobox(dir_frame, textvariable=self.direction_text, state="readonly",
+                                           values=("All directions", "Debit", "Credit", "Zero"))
+        self.direction_box.grid(row=1, column=0, sticky="ew", pady=(2, 0))
+        self.direction_box.bind("<<ComboboxSelected>>", lambda _: self._update_browser_category_choices())
+        arch_frame = ttk.Frame(self.advanced_filters_frame, style="Card.TFrame")
+        arch_frame.grid(row=0, column=4, sticky="ew", padx=4)
+        arch_frame.columnconfigure(0, weight=1)
+        ttk.Label(arch_frame, text=self.t("Status / archive"), style="Muted.TLabel").grid(row=0, column=0, sticky="w")
         self.browser_archive_box = ttk.Combobox(
-            filters, textvariable=self.browser_archive_text,
+            arch_frame, textvariable=self.browser_archive_text,
             values=(self.t("Active"), self.t("Archived"), self.t("All")), state="readonly", width=14)
-        self.browser_archive_box.grid(row=5, column=2, sticky="ew", padx=4)
+        self.browser_archive_box.grid(row=1, column=0, sticky="ew", pady=(2, 0))
         self.browser_archive_box.bind("<<ComboboxSelected>>", lambda _: self._apply_filters())
-        self.filter_widgets.append(self.browser_archive_box)
-        self.filter_widgets.append(self.browser_account_box)
-        ttk.Label(filters, text="Bank").grid(row=4, column=3, sticky="w", padx=4)
-        self.browser_bank_box = ttk.Combobox(
-            filters, textvariable=self.browser_bank_text,
-            values=(self.t("All banks"),), state="readonly")
-        self.browser_bank_box.grid(row=5, column=3, sticky="ew", padx=4)
-        self.filter_widgets.append(self.browser_bank_box)
-        for column in range(4):
-            filters.columnconfigure(column, weight=1)
-        browser_messages = ttk.Frame(tab)
-        browser_messages.grid(row=1, column=0, sticky="ew", pady=(10, 6))
-        ttk.Label(browser_messages, textvariable=self.summary, wraplength=900).pack(anchor="w")
-        ttk.Label(browser_messages, textvariable=self.review_hint, wraplength=900).pack(anchor="w")
-        ttk.Label(browser_messages, textvariable=self.filtered_totals, wraplength=900, style="Muted.TLabel").pack(anchor="w")
+        unclass_frame = ttk.Frame(self.advanced_filters_frame, style="Card.TFrame")
+        unclass_frame.grid(row=0, column=5, sticky="ew", padx=4, pady=(16, 0))
+        review = ttk.Checkbutton(unclass_frame, text=self.t("Unclassified only"), variable=self.review_only)
+        review.pack(anchor="w")
+        toolbar = ttk.Frame(tab, style="Toolbar.TFrame", padding=(2, 8))
+        toolbar.grid(row=1, column=0, sticky="ew")
+        actions_frame = ttk.Frame(toolbar, style="Toolbar.TFrame")
+        actions_frame.pack(side="right")
+        edit = ttk.Button(actions_frame, text="✏  " + self.t("Edit selected"), command=self._edit_selected, style="TableAction.TButton")
+        self.edit_button = edit
+        edit.pack(side="left", padx=3)
+        archive = ttk.Button(actions_frame, text="🗑  " + self.t("Delete selected"), command=self._archive_selected, style="TableAction.TButton")
+        self.archive_button = archive
+        archive.pack(side="left", padx=3)
+        restore = ttk.Button(actions_frame, text="↺  " + self.t("Restore selected"), command=self._restore_selected, style="TableAction.TButton")
+        self.restore_button = restore
+        restore.pack(side="left", padx=3)
+        export_btn = ttk.Button(actions_frame, text="📤  " + self.t("Export CSV…"), command=self._export_transactions_csv, style="TableAction.TButton")
+        self.export_button = export_btn
+        export_btn.pack(side="left", padx=3)
+        info_frame = ttk.Frame(toolbar, style="Toolbar.TFrame")
+        info_frame.pack(side="left", fill="x", expand=True)
+        ttk.Label(info_frame, textvariable=self.filtered_totals, style="Muted.TLabel", wraplength=520).pack(side="left")
+        ttk.Label(info_frame, textvariable=self.review_hint, wraplength=350).pack(side="left", padx=(10, 0))
+        self.filter_widgets.extend([
+            from_entry, to_entry, search, self.category_box,
+            self.currency_box, self.browser_account_box, self.browser_archive_box,
+            self.browser_bank_box, review, apply, reset, edit, archive, restore,
+            export_btn, self.filter_toggle_btn,
+        ])
         self.transactions = PagedTable(tab, [
             ("date", "Date / time", 135), ("description", "Merchant / description", 250),
             ("bank_account", "Bank / account", 175), ("amount", "Amount", 130),
@@ -875,7 +1000,10 @@ class DesktopApp:
         if path:
             self._request("restore_preview", path=path)
 
-    def _export_csv(self):
+    def _export_transactions_csv(self):
+        self._export_csv(format="transactions")
+
+    def _export_csv(self, format=None):
         if self.busy or not self.ready:
             return
         if not self.browser_total:
@@ -883,9 +1011,10 @@ class DesktopApp:
             return
         path = filedialog.asksaveasfilename(parent=self.window, title=self.t("Export all transactions matching applied filters"),
                                           defaultextension=".csv", filetypes=[("CSV", "*.csv")],
-                                          initialfile="transactions.csv")
+                                          initialfile="transactions.csv", confirmoverwrite=True)
         if path:
-            self._request("export_csv", path=path, filters=dict(self.active_filters), language=self.language)
+            self._request("export_csv", path=path, filters=dict(self.active_filters), language=self.language,
+                          format=format, confirm_overwrite=True)
 
     def _open_data_folder(self):
         try:
@@ -1271,7 +1400,7 @@ class DesktopApp:
             self.status.set(translate_format("Backup completed and validated: {path}", path=payload))
         elif operation == "dashboard":
             self.dashboard.display(payload)
-        elif operation.startswith(("review_", "rule_", "edit_")):
+        elif operation.startswith(("review_", "rule_", "edit_", "suggestion_")):
             self.review_views.handle(operation, payload)
         elif operation.startswith("mapping_") and self.mapping_view is not None:
             self.mapping_view.handle(operation, payload)
@@ -1355,6 +1484,13 @@ class DesktopApp:
         elif operation.startswith("budget_"):
             if self.budget_view is not None:
                 self.budget_view.handle(operation, payload)
+            if operation == "budget_variance" and self.dashboard is not None:
+                self.dashboard.handle_variance(payload)
+        elif operation == "goal_analysis" and self.dashboard is not None:
+            self.dashboard.handle_goal(payload)
+        elif operation == "goal_save_params":
+            if self.dashboard is not None:
+                self._request("goal_analysis", currency=self.dashboard.request.get("currency"))
         elif operation == "browse":
             self.browser_page, self.browser_total = payload["page"], payload["total"]
             self.browser_report = payload.get("report")

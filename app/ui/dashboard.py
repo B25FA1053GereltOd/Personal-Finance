@@ -1,7 +1,8 @@
 """Lightweight tables and Canvas charts; reporting and filter logic stay outside widgets."""
 
+from datetime import datetime
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
 from app.reporting import (
     PRESETS, ReportingError, category_chart_series, category_filters,
@@ -288,6 +289,104 @@ class ChartCanvas:
                 )
 
 
+
+class GoalAdjustDialog:
+    """Modal dialog for customizing long-term apartment purchase parameters."""
+
+    def __init__(self, parent, app, on_save, current=None):
+        self.app = app
+        self.on_save = on_save
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.transient(parent)
+        self.dialog.resizable(False, False)
+        self.dialog.title(app.t("Зорилго тохируулах"))
+
+        frame = ttk.Frame(self.dialog, padding=18)
+        frame.pack(fill="both", expand=True)
+
+        current = current or {}
+
+        # 1. Target Apartment Price
+        ttk.Label(frame, text=app.t("Зорилтот байрны үнэ") + " (MNT):").grid(row=0, column=0, sticky="w", pady=6)
+        init_price = str(current.get("apartment_price_minor", 200_000_000_00) // 100)
+        self.price_var = tk.StringVar(value=init_price)
+        ttk.Entry(frame, textvariable=self.price_var, width=22).grid(row=0, column=1, sticky="w", pady=6, padx=8)
+
+        # 2. Down Payment Percentage
+        ttk.Label(frame, text=app.t("Урьдчилгаа төлбөрийн хувь (%)") + ":").grid(row=1, column=0, sticky="w", pady=6)
+        init_pct = str(current.get("down_payment_pct", 30))
+        self.pct_var = tk.StringVar(value=init_pct)
+        ttk.Entry(frame, textvariable=self.pct_var, width=10).grid(row=1, column=1, sticky="w", pady=6, padx=8)
+
+        # 3. Initial Accumulated Savings
+        ttk.Label(frame, text=app.t("Одоогийн хуримтлал") + " (MNT):").grid(row=2, column=0, sticky="w", pady=6)
+        init_savings = str(current.get("total_accumulated_savings_minor", 0) // 100)
+        self.savings_var = tk.StringVar(value=init_savings)
+        ttk.Entry(frame, textvariable=self.savings_var, width=22).grid(row=2, column=1, sticky="w", pady=6, padx=8)
+
+        # 4. Target Monthly Savings (Optional Override)
+        ttk.Label(frame, text=app.t("Зорилтот сарын хуримтлал") + " (MNT):").grid(row=3, column=0, sticky="w", pady=6)
+        t_savings = current.get("effective_monthly_savings_minor")
+        init_target = str(t_savings // 100) if t_savings else ""
+        self.target_var = tk.StringVar(value=init_target)
+        ttk.Entry(frame, textvariable=self.target_var, width=22).grid(row=3, column=1, sticky="w", pady=6, padx=8)
+
+        ttk.Label(frame, text="(Хоосон үлдээвэл бодит гүйлгээнээс автоматаар тооцно)",
+                  style="CardMuted.TLabel").grid(row=4, column=0, columnspan=2, sticky="w", pady=(0, 10))
+
+        # Buttons
+        btn_frame = ttk.Frame(frame)
+        btn_frame.grid(row=5, column=0, columnspan=2, sticky="e", pady=(10, 0))
+
+        save_btn = ttk.Button(btn_frame, text=app.t("Хадгалах"), style="Primary.TButton", command=self._save)
+        save_btn.pack(side="right", padx=(6, 0))
+
+        cancel_btn = ttk.Button(btn_frame, text=app.t("Cancel"), command=self.dialog.destroy)
+        cancel_btn.pack(side="right")
+
+        from app.ui.i18n import localize_widget_tree
+        localize_widget_tree(self.dialog)
+        self.dialog.grab_set()
+
+    def _save(self):
+        try:
+            price_val = int(self.price_var.get().strip().replace(",", ""))
+            if price_val <= 0:
+                raise ValueError
+            price_minor = price_val * 100
+        except Exception:
+            messagebox.showwarning(self.app.t("Зорилго тохируулах"), "Байрны үнийг зөв тоогоор оруулна уу.", parent=self.dialog)
+            return
+
+        try:
+            pct_val = int(self.pct_var.get().strip())
+            if not (1 <= pct_val <= 100):
+                raise ValueError
+        except Exception:
+            messagebox.showwarning(self.app.t("Зорилго тохируулах"), "Урьдчилгааны хувь 1-100 хооронд байна.", parent=self.dialog)
+            return
+
+        try:
+            sav_str = self.savings_var.get().strip().replace(",", "")
+            sav_minor = int(sav_str) * 100 if sav_str else 0
+            if sav_minor < 0:
+                raise ValueError
+        except Exception:
+            messagebox.showwarning(self.app.t("Зорилго тохируулах"), "Хуримтлуулсан дүнг зөв тоогоор оруулна уу.", parent=self.dialog)
+            return
+
+        target_str = self.target_var.get().strip().replace(",", "")
+        target_minor = int(target_str) * 100 if target_str else None
+
+        self.dialog.destroy()
+        self.on_save({
+            "apartment_price_minor": price_minor,
+            "down_payment_pct": pct_val,
+            "initial_savings_minor": sav_minor,
+            "target_monthly_savings_minor": target_minor,
+        })
+
+
 class DashboardView:
     def __init__(self, app, table_factory):
         self.app = app
@@ -420,20 +519,94 @@ class DashboardView:
             self.breakdowns[kind] = table
             self.drill_buttons[kind] = button
 
-        # Budget summary section
-        budget_card = ttk.Frame(self.body, style="Card.TFrame", padding=(14, 12))
-        budget_card.grid(row=7, column=0, sticky="ew", pady=(0, 14))
-        budget_card.columnconfigure(0, weight=1)
-        budget_header = ttk.Frame(budget_card, style="Card.TFrame")
-        budget_header.grid(row=0, column=0, sticky="ew")
-        ttk.Label(budget_header, text=f"💰  {self.app.t('Monthly Budget')}", style="Section.TLabel").pack(side="left")
-        view_budget_btn = ttk.Button(budget_header, text=f"💰  {self.app.t('View budgets')}",
+        # -------------------------------------------------------------
+        # Row 7: LONG-TERM GOAL: WHEN WILL I GET AN APARTMENT? Widget
+        # -------------------------------------------------------------
+        self.goal_card = ttk.Frame(self.body, style="Card.TFrame", padding=(16, 14))
+        self.goal_card.grid(row=7, column=0, sticky="ew", pady=(0, 14))
+        self.goal_card.columnconfigure(0, weight=1)
+
+        goal_header = ttk.Frame(self.goal_card, style="Card.TFrame")
+        goal_header.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        goal_titles = ttk.Frame(goal_header, style="Card.TFrame")
+        goal_titles.pack(side="left")
+        ttk.Label(goal_titles, text="🏠  LONG-TERM GOAL: WHEN WILL I GET AN APARTMENT?", font=(FONT, 11, "bold"), style="Section.TLabel").pack(anchor="w")
+        ttk.Label(goal_titles, text="Урт хугацааны зорилго: Орон сууц худалдан авах хугацаа ба өр орлогын харьцааны тооцоолол", style="CardMuted.TLabel").pack(anchor="w", pady=(2, 0))
+
+        adjust_goal_btn = ttk.Button(goal_header, text=f"⚙  {self.app.t('Зорилго тохируулах…')}",
+                                     command=self.adjust_goal)
+        adjust_goal_btn.pack(side="right")
+        self.controls.append(adjust_goal_btn)
+
+        self.goal_hero_frame = ttk.Frame(self.goal_card, style="Card.TFrame")
+        self.goal_hero_frame.grid(row=1, column=0, sticky="ew", pady=(4, 10))
+        self.goal_hero_frame.columnconfigure(0, weight=1)
+
+        self.goal_timeline_var = tk.StringVar(value="⏳ Тооцоолж байна…")
+        self.goal_timeline_sub_var = tk.StringVar(value="Орон сууцны урьдчилгаа төлбөр цугларах тооцоолол")
+        ttk.Label(self.goal_hero_frame, textvariable=self.goal_timeline_var, font=(FONT, 13, "bold"), foreground="#3b82f6").grid(row=0, column=0, sticky="w")
+        ttk.Label(self.goal_hero_frame, textvariable=self.goal_timeline_sub_var, font=(FONT, 9), style="CardMuted.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 6))
+
+        self.goal_progress_canvas = None
+        if is_real_tk:
+            tokens = get_current_theme()
+            self.goal_progress_canvas = tk.Canvas(self.goal_hero_frame, height=24, background=tokens.surface,
+                                                  highlightthickness=1, highlightbackground=tokens.border)
+            self.goal_progress_canvas.grid(row=2, column=0, sticky="ew", pady=(2, 0))
+
+        self.goal_kpi_frame = ttk.Frame(self.goal_card, style="Card.TFrame")
+        self.goal_kpi_frame.grid(row=2, column=0, sticky="ew", pady=(6, 8))
+        for col in range(4):
+            self.goal_kpi_frame.columnconfigure(col, weight=1, uniform="goal_kpi")
+
+        self.goal_val_target = tk.StringVar(value="—")
+        self.goal_val_savings = tk.StringVar(value="—")
+        self.goal_val_savings_rate = tk.StringVar(value="—")
+        self.goal_val_dti = tk.StringVar(value="—")
+
+        self._create_metric_card(self.goal_kpi_frame, "Зорилтот байр & Урьдчилгаа", self.goal_val_target, 0)
+        self._create_metric_card(self.goal_kpi_frame, "Сарын хуримтлал", self.goal_val_savings, 1)
+        self._create_metric_card(self.goal_kpi_frame, "Хуримтлалын хувь (Savings Rate)", self.goal_val_savings_rate, 2)
+        self._create_metric_card(self.goal_kpi_frame, "Өр орлогын харьцаа (DTI)", self.goal_val_dti, 3)
+
+        self.goal_advice_var = tk.StringVar(value="Банкны шалгуураар өр орлогын харьцааг тооцоолж байна…")
+        self.goal_advice_label = ttk.Label(self.goal_card, textvariable=self.goal_advice_var, wraplength=980,
+                                           font=(FONT, 9, "italic"), style="CardMuted.TLabel")
+        self.goal_advice_label.grid(row=3, column=0, sticky="w", pady=(4, 0))
+
+        # -------------------------------------------------------------
+        # Row 8: Executive Budget vs Actual (ТӨСӨВ vs БОДИТ) Widget
+        # -------------------------------------------------------------
+        self.var_card = ttk.Frame(self.body, style="Card.TFrame", padding=(16, 14))
+        self.var_card.grid(row=8, column=0, sticky="ew", pady=(0, 14))
+        self.var_card.columnconfigure(0, weight=1)
+
+        var_header = ttk.Frame(self.var_card, style="Card.TFrame")
+        var_header.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        var_titles = ttk.Frame(var_header, style="Card.TFrame")
+        var_titles.pack(side="left")
+        ttk.Label(var_titles, text=f"💰  {self.app.t('Төсөв ба Бодит гүйцэтгэл')} (Budget vs Actual)", font=(FONT, 11, "bold"), style="Section.TLabel").pack(anchor="w")
+        ttk.Label(var_titles, text="Сонгосон хугацааны нийт төсөв болон бодит зардлын зөрүүгийн шинжилгээ", style="CardMuted.TLabel").pack(anchor="w", pady=(2, 0))
+
+        view_budget_btn = ttk.Button(var_header, text=f"📊  {self.app.t('Дэлгэрэнгүй төсвийн шинжилгээ үзэх')} ➔",
                                      command=getattr(self.app, "_select_budget", lambda: None), style="Primary.TButton")
         view_budget_btn.pack(side="right")
         self.controls.append(view_budget_btn)
-        ttk.Label(budget_card, text=self.app.t("Monthly budget management"), style="CardMuted.TLabel").grid(
-            row=1, column=0, sticky="w", pady=(4, 0)
-        )
+
+        self.var_kpi_frame = ttk.Frame(self.var_card, style="Card.TFrame")
+        self.var_kpi_frame.grid(row=1, column=0, sticky="ew", pady=(6, 8))
+        for col in range(4):
+            self.var_kpi_frame.columnconfigure(col, weight=1, uniform="var_kpi")
+
+        self.dash_var_budget = tk.StringVar(value="—")
+        self.dash_var_actual = tk.StringVar(value="—")
+        self.dash_var_variance = tk.StringVar(value="—")
+        self.dash_var_pct = tk.StringVar(value="—")
+
+        self._create_metric_card(self.var_kpi_frame, "ТӨСӨВ (Budget)", self.dash_var_budget, 0)
+        self._create_metric_card(self.var_kpi_frame, "БОДИТ (Actual)", self.dash_var_actual, 1)
+        self._create_metric_card(self.var_kpi_frame, "ЗӨРҮҮ (Variance)", self.dash_var_variance, 2)
+        self._create_metric_card(self.var_kpi_frame, "% БИЕЛЭЛТ (Execution)", self.dash_var_pct, 3)
 
     def _bind_mousewheel(self, active: bool):
         if self.scroll_canvas is None:
@@ -523,6 +696,103 @@ class DashboardView:
             self.message.set(translate_format(
                 "{period}: {count} transactions; {unclassified} unclassified. Unclassified, transfer and excluded amounts are omitted from income/expense/net totals. Net is not an account balance.",
                 period=period, count=report.transaction_count, unclassified=report.unclassified_count))
+        curr = self.request.get("currency")
+        self.app._request("goal_analysis", currency=curr)
+        month_to_check = report.end[:7] if getattr(report, "end", None) else datetime.now().strftime("%Y-%m")
+        self.app._request("budget_variance", month=month_to_check, currency=curr)
+
+    def _create_metric_card(self, parent, title, text_var, column):
+        frame = ttk.Frame(parent, padding=(10, 8), style="Card.TFrame")
+        frame.grid(row=0, column=column, padx=4, sticky="nsew")
+        ttk.Label(frame, text=title, font=(FONT, 8, "bold"), style="CardTitle.TLabel").pack(anchor="w")
+        ttk.Label(frame, textvariable=text_var, font=(FONT, 11, "bold"), style="CardValue.TLabel").pack(anchor="w", pady=(3, 0))
+        return frame
+
+    def handle_goal(self, payload):
+        self.goal_data = payload
+        curr = payload.get("currency", "MNT")
+        tl_text = payload.get("timeline_text", "—")
+        est_date = payload.get("estimated_target_date", "")
+        self.goal_timeline_var.set(f"⏳ Тооцоолсон хугацаа: {tl_text}  ({est_date})")
+        self.goal_timeline_sub_var.set(payload.get("timeline_subtitle", ""))
+
+        apt_price = format_money(payload.get("apartment_price_minor", 0), curr)
+        dp_target = format_money(payload.get("down_payment_target_minor", 0), curr)
+        dp_pct = payload.get("down_payment_pct", 30)
+        self.goal_val_target.set(f"{apt_price} ({dp_pct}%: {dp_target})")
+
+        eff_sav = format_money(payload.get("effective_monthly_savings_minor", 0), curr)
+        self.goal_val_savings.set(f"{eff_sav} / сар")
+
+        sav_rate = payload.get("savings_rate_pct", 0.0)
+        sav_label = payload.get("savings_grade_label", "")
+        self.goal_val_savings_rate.set(f"{sav_rate:.1f}%  (● {sav_label})")
+
+        dti_pct = payload.get("dti_pct", 0.0)
+        dti_label = payload.get("dti_label", "")
+        self.goal_val_dti.set(f"{dti_pct:.1f}%  (● {dti_label})")
+
+        self.goal_advice_var.set(payload.get("dti_advice", ""))
+        if self.goal_progress_canvas is not None:
+            self._redraw_goal_progress(payload)
+
+    def _redraw_goal_progress(self, payload):
+        c = self.goal_progress_canvas
+        if c is None:
+            return
+        tokens = get_current_theme()
+        c.delete("all")
+        w = max(400, int(c.winfo_width()))
+        h = int(c.cget("height"))
+        pct = payload.get("progress_pct", 0.0)
+        curr = payload.get("currency", "MNT")
+        accum = format_money(payload.get("total_accumulated_savings_minor", 0), curr)
+        target = format_money(payload.get("down_payment_target_minor", 0), curr)
+
+        c.create_rectangle(0, 0, w, h, fill=tokens.surface, outline=tokens.border)
+        fill_w = max(2, int(w * min(100.0, pct) / 100))
+        fill_color = tokens.green if pct >= 100 else tokens.primary
+        c.create_rectangle(0, 0, fill_w, h, fill=fill_color, outline="")
+
+        text = f"Урьдчилгаа хуримтлагдсан: {pct:.1f}% ({accum} / {target})"
+        c.create_text(w // 2, h // 2, text=text, fill=WHITE if fill_w > w // 2 else tokens.text, font=(FONT, 9, "bold"))
+
+    def handle_variance(self, payload):
+        totals = payload.get("totals", {})
+        curr = payload.get("currency")
+        target = None
+        if curr and curr in totals:
+            target = totals[curr]
+        elif len(totals) == 1:
+            target = next(iter(totals.values()))
+
+        if target:
+            c = target["currency"]
+            self.dash_var_budget.set(format_money(target["expense_budget"], c))
+            self.dash_var_actual.set(format_money(target["expense_actual"], c))
+            v = target["expense_variance"]
+            sign = "+" if v > 0 else ""
+            self.dash_var_variance.set(f"{sign}{format_money(v, c)}")
+            self.dash_var_pct.set(f"{target['expense_pct']:.1f}%")
+        elif len(totals) > 1:
+            b_strs = [format_money(t["expense_budget"], c) for c, t in sorted(totals.items())]
+            a_strs = [format_money(t["expense_actual"], c) for c, t in sorted(totals.items())]
+            self.dash_var_budget.set(" | ".join(b_strs))
+            self.dash_var_actual.set(" | ".join(a_strs))
+            self.dash_var_variance.set(f"{len(totals)} валют")
+            self.dash_var_pct.set("Бүгд")
+        else:
+            self.dash_var_budget.set("—")
+            self.dash_var_actual.set("—")
+            self.dash_var_variance.set("—")
+            self.dash_var_pct.set("—")
+
+    def adjust_goal(self):
+        GoalAdjustDialog(
+            self.app.window, self.app,
+            on_save=lambda params: self.app._request("goal_save_params", **params),
+            current=getattr(self, "goal_data", None),
+        )
 
     def drill(self, kind):
         if self.app.busy or self.report is None:
